@@ -10,3 +10,14 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Others
+vendor/
+
+# go-fuzz
+corpus/
+crashers/
+suppressions/
+*.zip
+
+*.pb.go
