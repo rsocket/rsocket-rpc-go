@@ -1,0 +1,17 @@
+// protoc --go_out=. example.proto
+syntax = "proto3";
+
+package ping;
+
+message Ping {
+    string ball = 1;
+}
+
+message Pong {
+    string ball = 1;
+}
+
+service PingPong {
+    rpc ping (Ping) returns (Pong) {
+    }
+}
