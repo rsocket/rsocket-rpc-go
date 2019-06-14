@@ -9,21 +9,10 @@ const Version = uint16(1)
 
 type Metadata []byte
 
-func (p Metadata) pp() []byte {
-	return ([]byte)(p)
-}
-
 func (p Metadata) Version() uint16 {
 	raw := p.pp()
 	_ = raw[1]
 	return binary.BigEndian.Uint16(raw)
-}
-
-func (p Metadata) seekNext(offset int) (int, int) {
-	raw := p.pp()
-	l := binary.BigEndian.Uint16(raw[offset:])
-	offset += 2
-	return offset, offset + int(l)
 }
 
 func (p Metadata) Service() []byte {
@@ -57,6 +46,17 @@ func (p Metadata) Metadata() []byte {
 	}
 	raw := p.pp()
 	return raw[b:]
+}
+
+func (p Metadata) pp() []byte {
+	return ([]byte)(p)
+}
+
+func (p Metadata) seekNext(offset int) (int, int) {
+	raw := p.pp()
+	l := binary.BigEndian.Uint16(raw[offset:])
+	offset += 2
+	return offset, offset + int(l)
 }
 
 func EncodeMetadata(service, method, tracing, metadata []byte) (m Metadata, err error) {

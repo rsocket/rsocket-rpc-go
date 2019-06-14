@@ -8,7 +8,7 @@ import (
 	"github.com/rsocket/rsocket-rpc-go/internal/metadata"
 )
 
-func newRequestPayload(srv string, method string, msg proto.Message) (req payload.Payload, err error) {
+func NewRequestPayload(srv string, method string, msg proto.Message) (req payload.Payload, err error) {
 	m, err := metadata.EncodeMetadata(common.Str2bytes(srv), common.Str2bytes(method), nil, nil)
 	if err != nil {
 		err = errors.Wrap(err, "rrpc: encode request metadata failed")

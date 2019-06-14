@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"testing"
 
+	. "github.com/rsocket/rsocket-rpc-go/internal/metadata"
 	"github.com/stretchr/testify/require"
 )
 

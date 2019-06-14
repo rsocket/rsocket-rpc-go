@@ -2,6 +2,8 @@ package rrpc
 
 type methodHandler func(srv interface{}, dec func(interface{}) error) (interface{}, error)
 
+
+
 type ServiceDesc struct {
 	Name        string
 	HandlerType interface{}

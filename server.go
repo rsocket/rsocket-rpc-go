@@ -1,11 +1,15 @@
 package rrpc
 
 import (
+	"context"
 	"reflect"
 	"sync"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
+	"github.com/rsocket/rsocket-go"
+	"github.com/rsocket/rsocket-go/payload"
+	"github.com/rsocket/rsocket-go/rx"
 	"github.com/rsocket/rsocket-rpc-go/internal/metadata"
 )
 
@@ -20,11 +24,42 @@ type Server struct {
 	serve bool
 }
 
-func (p *Server) MockRequestResponse(srv string, method string, msg proto.Message) (res interface{}, err error) {
-	req, err := newRequestPayload(srv, method, msg)
-	if err != nil {
-		return
+func (p *Server) Acceptor() rsocket.ServerAcceptor {
+	return func(setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) rsocket.RSocket {
+		return p.ToRSocket()
 	}
+}
+
+func (p *Server) ToRSocket() rsocket.RSocket {
+	return rsocket.NewAbstractSocket(
+		rsocket.RequestResponse(func(msg payload.Payload) rx.Mono {
+			return rx.NewMono(func(ctx context.Context, sink rx.MonoProducer) {
+				res, err := p.MockRequestResponse(ctx, msg)
+				if err != nil {
+					sink.Error(err)
+					return
+				}
+				msg, ok := res.(proto.Message)
+				if !ok {
+					sink.Error(errors.Errorf("rrpc: invalid response type: expect=proto.Message, actual=%v", msg))
+					return
+				}
+				raw, err := proto.Marshal(msg)
+				if err != nil {
+					sink.Error(err)
+					return
+				}
+				// TODO: fill response metadata.
+				pd := payload.New(raw, nil)
+				if err := sink.Success(pd); err != nil {
+					pd.Release()
+				}
+			})
+		}),
+	)
+}
+
+func (p *Server) MockRequestResponse(ctx context.Context, req payload.Payload) (res interface{}, err error) {
 	m, ok := req.Metadata()
 	if !ok {
 		err = errors.New("rrpc: missing metadata in Payload")
