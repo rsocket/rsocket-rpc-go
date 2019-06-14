@@ -12,12 +12,12 @@ var _PingPong_serviceDesc = rrpc.ServiceDesc{
 	Methods: []rrpc.MethodDesc{
 		{
 			Name:    "ping",
-			Handler: _PingPong_ping_handler,
+			Handler: _PingPong_Ping_handler,
 		},
 	},
 }
 
-func _PingPong_ping_handler(srv interface{}, dec func(interface{}) error) (interface{}, error) {
+func _PingPong_Ping_handler(srv interface{}, dec func(interface{}) error) (interface{}, error) {
 	req := new(pb.Ping)
 	if err := dec(req); err != nil {
 		return nil, err
