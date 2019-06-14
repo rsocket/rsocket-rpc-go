@@ -1,10 +1,9 @@
-package internal_test
+package metadata_test
 
 import (
 	"crypto/rand"
 	"testing"
 
-	. "github.com/rsocket/rsocket-rpc-go/internal"
 	"github.com/stretchr/testify/require"
 )
 
