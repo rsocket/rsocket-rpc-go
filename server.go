@@ -76,12 +76,8 @@ func (p *Server) MockRequestResponse(ctx context.Context, req payload.Payload) (
 		err = errors.Errorf("rrpc: no such method %s", string(meta.Method()))
 		return
 	}
-	res, err = md.Handler(ss.ss, p.getUnmarshaller(req.Data()))
+	res, err = md.Handler(ctx, ss.ss, p.getUnmarshaller(req.Data()))
 	return
-}
-
-func (p *Server) Serve() (err error) {
-	panic("not implement")
 }
 
 func (p *Server) RegisterService(sd *ServiceDesc, ss interface{}) {

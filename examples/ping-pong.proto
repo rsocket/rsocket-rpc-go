@@ -1,7 +1,7 @@
-// protoc --go_out=. example.proto
+// protoc --go_out=plugins=rrpc:./ping-pong ./ping-pong.proto
 syntax = "proto3";
 
-package ping;
+package ping_pong;
 
 message Ping {
     string ball = 1;

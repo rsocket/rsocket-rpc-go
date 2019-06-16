@@ -1,8 +1,8 @@
 package rrpc
 
-type methodHandler func(srv interface{}, dec func(interface{}) error) (interface{}, error)
+import "context"
 
-
+type methodHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error) (interface{}, error)
 
 type ServiceDesc struct {
 	Name        string
