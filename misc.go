@@ -5,11 +5,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rsocket/rsocket-go/payload"
 	"github.com/rsocket/rsocket-rpc-go/internal/common"
-	"github.com/rsocket/rsocket-rpc-go/internal/metadata"
+	meta "github.com/rsocket/rsocket-rpc-go/internal/metadata"
 )
 
-func NewRequestPayload(srv string, method string, msg proto.Message) (req payload.Payload, err error) {
-	m, err := metadata.EncodeMetadata(common.Str2bytes(srv), common.Str2bytes(method), nil, nil)
+func NewRequestPayload(srv string, method string, msg proto.Message, tracing []byte, metadata []byte) (req payload.Payload, err error) {
+	m, err := meta.EncodeMetadata(common.Str2bytes(srv), common.Str2bytes(method), tracing, metadata)
 	if err != nil {
 		err = errors.Wrap(err, "rrpc: encode request metadata failed")
 		return

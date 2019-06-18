@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rsocket/rsocket-go"
+	"github.com/rsocket/rsocket-go/logger"
 	rrpc "github.com/rsocket/rsocket-rpc-go"
 	pb "github.com/rsocket/rsocket-rpc-go/examples/ping-pong"
 	"github.com/stretchr/testify/assert"
@@ -33,6 +34,39 @@ func TestAll(t *testing.T) {
 	}
 }
 
+func TestServe(t *testing.T) {
+	logger.SetLevel(logger.LevelDebug)
+	ss := &pingPongServer{}
+	s := rrpc.NewServer()
+	pb.RegisterPingPongServer(s, ss)
+	err := rsocket.Receive().
+		Acceptor(s.Acceptor()).
+		Transport("tcp://127.0.0.1:7878").
+		Serve(context.Background())
+	if err != nil {
+		panic(err)
+	}
+}
+
+func TestNewPingPongClient(t *testing.T) {
+	addr := "tcp://127.0.0.1:8081"
+	logger.SetLevel(logger.LevelDebug)
+
+	time.Sleep(500 * time.Millisecond)
+
+	rc, err := rsocket.Connect().
+		Transport(addr).
+		Start(context.Background())
+	require.NoError(t, err, "cannot create client")
+	c := pb.NewPingPongClient(rrpc.NewClientConn(rc, nil, nil))
+	req := &pb.Ping{
+		Ball: "Hello World!",
+	}
+	res, err := c.Ping(context.Background(), req, rrpc.WithMetadata([]byte("FROM_GOLANG")))
+	assert.NoError(t, err, "cannot get response")
+	assert.Equal(t, req.Ball, res.Ball, "bad response")
+}
+
 func doTest(addr string, t *testing.T) {
 	//const addr =
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,7 +91,7 @@ func doTest(addr string, t *testing.T) {
 		Transport(addr).
 		Start(ctx)
 	require.NoError(t, err, "cannot create client")
-	c := pb.NewPingPongClient(rrpc.NewClientConn(rc))
+	c := pb.NewPingPongClient(rrpc.NewClientConn(rc, nil, nil))
 	req := &pb.Ping{
 		Ball: "Hello World!",
 	}

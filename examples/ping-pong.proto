@@ -3,6 +3,8 @@ syntax = "proto3";
 
 package ping_pong;
 
+option java_package = "com.example.rrpc.pb";
+
 message Ping {
     string ball = 1;
 }

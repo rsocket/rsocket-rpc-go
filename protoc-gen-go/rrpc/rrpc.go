@@ -145,13 +145,13 @@ func (g *rrpc) generateClientMethod(servName, fullServName, serviceDescVar strin
 	g.P("func (c *", unexport(servName), "Client) ", g.generateClientSignature(servName, method), " {")
 	if !method.GetServerStreaming() && !method.GetClientStreaming() {
 		g.P("out := new(", outType, ")")
-		g.P(`err := c.cc.Invoke(ctx, "`, fullServName, `", "`, methodName, `", in, out)`)
+		g.P(`err := c.cc.Invoke(ctx, "`, fullServName, `", "`, methodName, `", in, out, opts...)`)
 		g.P("if err != nil { return nil, err }")
 		g.P("return out, nil")
 		g.P("}")
 		g.P()
 	}
-
+	// TODO: support stream
 }
 
 func (g *rrpc) generateClientSignature(servName string, method *pb.MethodDescriptorProto) string {
@@ -160,7 +160,7 @@ func (g *rrpc) generateClientSignature(servName string, method *pb.MethodDescrip
 	// TODO: support stream
 	reqArg := ", in *" + g.typeName(method.GetInputType())
 	respName := "*" + g.typeName(method.GetOutputType())
-	return fmt.Sprintf("%s(ctx %s.Context%s) (%s, error)", methName, contextPkg, reqArg, respName)
+	return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) (%s, error)", methName, contextPkg, reqArg, rrpcPkg, respName)
 }
 
 // Given a type name defined in a .proto, return its name as we will print it.

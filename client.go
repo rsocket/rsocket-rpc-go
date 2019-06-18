@@ -11,6 +11,8 @@ import (
 
 type ClientConn struct {
 	c rsocket.Client
+	m MeterRegistry
+	t Tracer
 }
 
 func (p *ClientConn) Invoke(
@@ -19,8 +21,13 @@ func (p *ClientConn) Invoke(
 	method string,
 	in proto.Message,
 	out proto.Message,
+	opts ...CallOption,
 ) (err error) {
-	sent, err := NewRequestPayload(srv, method, in)
+	o := &callOption{}
+	for i := range opts {
+		opts[i](o)
+	}
+	sent, err := NewRequestPayload(srv, method, in, o.tracing, o.metadata)
 	if err != nil {
 		return
 	}
@@ -35,6 +42,29 @@ func (p *ClientConn) Invoke(
 	return
 }
 
-func NewClientConn(c rsocket.Client) *ClientConn {
-	return &ClientConn{c}
+func NewClientConn(c rsocket.Client, m MeterRegistry, t Tracer) *ClientConn {
+	return &ClientConn{
+		c: c,
+		m: m,
+		t: t,
+	}
+}
+
+type callOption struct {
+	tracing  []byte
+	metadata []byte
+}
+
+type CallOption func(*callOption)
+
+func WithTracing(tracing []byte) CallOption {
+	return func(o *callOption) {
+		o.tracing = tracing
+	}
+}
+
+func WithMetadata(metadata []byte) CallOption {
+	return func(o *callOption) {
+		o.metadata = metadata
+	}
 }
