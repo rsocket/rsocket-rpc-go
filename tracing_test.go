@@ -1,4 +1,4 @@
-package rrpc
+package rrpc_test
 
 import (
 	"log"
@@ -6,27 +6,33 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/mocktracer"
+	. "github.com/rsocket/rsocket-rpc-go"
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnmarshallTracing(t *testing.T) {
-	//s := "0004666f757200013400036f6e65000131000374776f00013200057468726565000133000466697665000135"
-	//raw, _ := hex.DecodeString(s)
+func TestMarshallAndUnmarshallTracing(t *testing.T) {
 	tracer := mocktracer.New()
-	span := tracer.StartSpan("a", opentracing.Tags(map[string]interface{}{
+	span := tracer.StartSpan("rsocket.request")
+	span.SetBaggageItem("foo", "bar")
+	span.Finish()
+
+	carrier := opentracing.TextMapCarrier(map[string]string{
 		"one":   "1",
 		"two":   "2",
 		"three": "3",
 		"four":  "4",
 		"five":  "5",
-	}))
-	span.SetBaggageItem("foo", "bar")
-	span.Finish()
-	tracer.FinishedSpans()
+	})
 
-	raw, err := MarshallTracing(span.Context())
-	require.NoError(t, err, "marshall tracing failed")
-	sc, err := UnmarshallTracing(tracer, raw)
-	require.NoError(t, err, "unmarshall tracing failed")
-	log.Println(sc)
+	err := tracer.Inject(span.Context(), opentracing.TextMap, carrier)
+	require.NoError(t, err, "inject failed")
+	raw, err := MarshallTracing(carrier)
+	require.NoError(t, err, "marshall failed")
+
+	ctx1 := span.Context()
+	ctx2, err := UnmarshallTracing(tracer, raw)
+	require.NoError(t, err, "unmarshall failed")
+	require.Equal(t, ctx1, ctx2, "bad context")
+	log.Printf("context1: %+v\n", ctx1)
+	log.Printf("context2: %+v\n", ctx2)
 }

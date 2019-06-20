@@ -1,10 +1,9 @@
-package metadata_test
+package rrpc
 
 import (
 	"crypto/rand"
 	"testing"
 
-	. "github.com/rsocket/rsocket-rpc-go/internal/metadata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +13,7 @@ func TestEncodeMetadata(t *testing.T) {
 	var md [20]byte
 	_, _ = rand.Read(md[:])
 
-	m, err := EncodeMetadata([]byte(service), []byte(method), nil, md[:])
+	m, err := encodeMetadata([]byte(service), []byte(method), nil, md[:])
 	require.NoError(t, err, "encode failed")
 
 	require.Equal(t, service, string(m.Service()), "bad service")

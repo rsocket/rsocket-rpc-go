@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"log"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
@@ -18,30 +17,25 @@ var (
 type Tracer opentracing.Tracer
 type SpanContext opentracing.SpanContext
 
-func MarshallTracing(sc SpanContext) (b []byte, err error) {
+func MarshallTracing(carrier map[string]string) (b []byte, err error) {
 	bf := &bytes.Buffer{}
-	sc.ForeachBaggageItem(func(k, v string) bool {
-		log.Printf("put: %s->%s\n", k, v)
+	for k, v := range carrier {
 		err = binary.Write(bf, binary.BigEndian, uint16(len(k)))
 		if err != nil {
-			return false
+			return
 		}
 		_, err = bf.WriteString(k)
 		if err != nil {
-			return false
+			return
 		}
 		err = binary.Write(bf, binary.BigEndian, uint16(len(v)))
 		if err != nil {
-			return false
+			return
 		}
 		_, err = bf.WriteString(v)
 		if err != nil {
-			return false
+			return
 		}
-		return true
-	})
-	if err != nil {
-		return
 	}
 	b = bf.Bytes()
 	return
@@ -66,7 +60,7 @@ func UnmarshallTracing(tracer Tracer, tracing []byte) (SpanContext, error) {
 		}
 		kvSize := kvLen + 2
 		if kvSize <= len(data) {
-			return kvSize, data[:kvSize], nil
+			return kvSize, data[2:kvSize], nil
 		}
 		return
 	})

@@ -12,11 +12,13 @@ import (
 const (
 	contextPkgPath = "context"
 	rrpcPkgPath    = "github.com/rsocket/rsocket-rpc-go"
+	rsocketPkgPath = "github.com/rsocket/rsocket-go"
 )
 
 var (
 	contextPkg string
 	rrpcPkg    string
+	rsocketPkg string
 )
 
 func init() {
@@ -42,9 +44,11 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 
 	contextPkg = string(g.gen.AddImport(contextPkgPath))
 	rrpcPkg = string(g.gen.AddImport(rrpcPkgPath))
+	rsocketPkg = string(g.gen.AddImport(rsocketPkgPath))
 
 	g.P("var _ ", contextPkg, ".Context")
 	g.P("var _ ", rrpcPkg, ".ClientConn")
+	g.P("var _ ", rsocketPkg, ".RSocket")
 
 	for i, service := range file.FileDescriptorProto.Service {
 		g.generateService(file, service, i)
@@ -78,7 +82,8 @@ func (g *rrpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	g.P()
 
 	// NewClient factory.
-	g.P("func New", servName, "Client(cc *", rrpcPkg, ".ClientConn) ", servName, "Client {")
+	g.P("func New", servName, "Client(s ", rsocketPkg, ".RSocket, m ", rrpcPkg, ".MeterRegistry, t ", rrpcPkg, ".Tracer) ", servName, "Client {")
+	g.P("cc := ", rrpcPkg, ".NewClientConn(s, m, t)")
 	g.P("return &", unexport(servName), "Client{cc}")
 	g.P("}")
 	g.P()
@@ -135,6 +140,7 @@ func (g *rrpc) generateServerSignature(servName string, method *pb.MethodDescrip
 	reqArgs = append(reqArgs, contextPkg+".Context")
 	ret := "(*" + g.typeName(method.GetOutputType()) + ", error)"
 	reqArgs = append(reqArgs, "*"+g.typeName(method.GetInputType()))
+	reqArgs = append(reqArgs, rrpcPkg+".Metadata")
 	return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
 }
 
@@ -177,13 +183,13 @@ func (g *rrpc) generateServerMethod(servName, fullServName string, method *pb.Me
 	methName := generator.CamelCase(method.GetName())
 	hname := fmt.Sprintf("_%s_%s_Handler", servName, methName)
 	inType := g.typeName(method.GetInputType())
-	g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error) (interface{}, error) {")
+	g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error, md ", rrpcPkg, ".Metadata) (interface{}, error) {")
 	g.P("in := new(", inType, ")")
 	g.P("err := dec(in)")
 	g.P("if err != nil {")
 	g.P("return nil, err")
 	g.P("}")
-	g.P("return srv.(", servName, "Server).", methName, "(ctx, in)")
+	g.P("return srv.(", servName, "Server).", methName, "(ctx, in, md)")
 	g.P("}")
 	return hname
 }

@@ -1,13 +1,41 @@
-package metadata
+package rrpc
 
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+
+	"github.com/rsocket/rsocket-rpc-go/internal/common"
 )
 
 const Version = uint16(1)
 
 type Metadata []byte
+
+func (p Metadata) String() string {
+	var tr string
+	if b := p.Tracing(); len(b) < 1 {
+		tr = "<nil>"
+	} else {
+		tr = "0x" + hex.EncodeToString(b)
+	}
+
+	var m string
+	if b := p.Metadata(); len(b) < 1 {
+		m = "<nil>"
+	} else {
+		m = "0x" + hex.EncodeToString(b)
+	}
+	return fmt.Sprintf(
+		"Metadata{version=%d, service=%s, method=%s, tracing=%s, metadata=%s}",
+		p.Version(),
+		common.Bytes2str(p.Service()),
+		common.Bytes2str(p.Method()),
+		tr,
+		m,
+	)
+}
 
 func (p Metadata) Version() uint16 {
 	raw := p.pp()
@@ -59,7 +87,7 @@ func (p Metadata) seekNext(offset int) (int, int) {
 	return offset, offset + int(l)
 }
 
-func EncodeMetadata(service, method, tracing, metadata []byte) (m Metadata, err error) {
+func encodeMetadata(service, method, tracing, metadata []byte) (m Metadata, err error) {
 	w := &bytes.Buffer{}
 	// write version
 	err = binary.Write(w, binary.BigEndian, Version)

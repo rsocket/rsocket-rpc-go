@@ -10,7 +10,6 @@ import (
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/payload"
 	"github.com/rsocket/rsocket-go/rx"
-	"github.com/rsocket/rsocket-rpc-go/internal/metadata"
 )
 
 type service struct {
@@ -65,7 +64,7 @@ func (p *Server) MockRequestResponse(ctx context.Context, req payload.Payload) (
 		err = errors.New("rrpc: missing metadata in Payload")
 		return
 	}
-	meta := (metadata.Metadata)(m)
+	meta := (Metadata)(m)
 	ss, ok := p.m[string(meta.Service())]
 	if !ok {
 		err = errors.Errorf("rrpc: no such service %s", string(meta.Service()))
@@ -76,7 +75,7 @@ func (p *Server) MockRequestResponse(ctx context.Context, req payload.Payload) (
 		err = errors.Errorf("rrpc: no such method %s", string(meta.Method()))
 		return
 	}
-	res, err = md.Handler(ctx, ss.ss, p.getUnmarshaller(req.Data()))
+	res, err = md.Handler(ctx, ss.ss, p.getUnmarshaller(req.Data()), meta)
 	return
 }
 

@@ -10,7 +10,7 @@ import (
 )
 
 type ClientConn struct {
-	c rsocket.Client
+	c rsocket.RSocket
 	m MeterRegistry
 	t Tracer
 }
@@ -42,7 +42,7 @@ func (p *ClientConn) Invoke(
 	return
 }
 
-func NewClientConn(c rsocket.Client, m MeterRegistry, t Tracer) *ClientConn {
+func NewClientConn(c rsocket.RSocket, m MeterRegistry, t Tracer) *ClientConn {
 	return &ClientConn{
 		c: c,
 		m: m,

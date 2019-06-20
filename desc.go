@@ -2,7 +2,7 @@ package rrpc
 
 import "context"
 
-type methodHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error) (interface{}, error)
+type methodHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error, m Metadata) (interface{}, error)
 
 type ServiceDesc struct {
 	Name        string
