@@ -2,6 +2,7 @@ package rrpc
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -10,15 +11,21 @@ import (
 )
 
 const (
+	atomicPkgPath  = "sync/atomic"
 	contextPkgPath = "context"
 	rrpcPkgPath    = "github.com/rsocket/rsocket-rpc-go"
 	rsocketPkgPath = "github.com/rsocket/rsocket-go"
+	rxPkgPath      = "github.com/rsocket/rsocket-go/rx"
+	payloadPkgPath = "github.com/rsocket/rsocket-go/payload"
 )
 
 var (
+	atomicPkg  string
 	contextPkg string
 	rrpcPkg    string
 	rsocketPkg string
+	rxPkg      string
+	payloadPkg string
 )
 
 func init() {
@@ -42,17 +49,24 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 		return
 	}
 
+	atomicPkg = string(g.gen.AddImport(atomicPkgPath))
 	contextPkg = string(g.gen.AddImport(contextPkgPath))
 	rrpcPkg = string(g.gen.AddImport(rrpcPkgPath))
 	rsocketPkg = string(g.gen.AddImport(rsocketPkgPath))
+	rxPkg = string(g.gen.AddImport(rxPkgPath))
+	payloadPkg = string(g.gen.AddImport(payloadPkgPath))
 
 	g.P("var _ ", contextPkg, ".Context")
 	g.P("var _ ", rrpcPkg, ".ClientConn")
 	g.P("var _ ", rsocketPkg, ".RSocket")
+	g.P("var _ ", rxPkg, ".Flux")
+	g.P("var _ ", payloadPkg, ".Payload")
 
 	for i, service := range file.FileDescriptorProto.Service {
 		g.generateService(file, service, i)
 	}
+
+	g.generateFlux(".ping_pong.Pong")
 
 }
 
@@ -133,20 +147,115 @@ func (g *rrpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	g.P()
 }
 
+func (g *rrpc) fluxName(msgType string) string {
+	typ := g.typeName(msgType)
+	return "Flux" + typ
+}
+
+func (g *rrpc) generateFlux(msgType string) {
+	typ := g.typeName(msgType)
+	g.P("type Flux", typ, " struct {")
+	g.P("f ", rxPkg, ".Flux")
+	g.P("}")
+	g.P()
+	g.P("func (p *Flux", typ, ") Raw() ", rxPkg, ".Flux {")
+	g.P("return p.f")
+	g.P("}")
+	g.P()
+	g.P("func (p *Flux", typ, ") DoOnNext(fn func(", contextPkg, ".Context, ", rxPkg, ".Subscription, *", typ, ")) *Flux", typ, " {")
+	g.P("p.f.DoOnNext(func(ctx ", contextPkg, ".Context, s ", rxPkg, ".Subscription, elem ", payloadPkg, ".Payload) {")
+	g.P("o := new(", typ, ")")
+	g.P("if err := proto.Unmarshal(elem.Data(), o); err != nil {")
+	g.P("panic(err)")
+	g.P("}")
+	g.P("fn(ctx, s, o)")
+	g.P("})")
+	g.P("return p")
+	g.P("}")
+	g.P()
+	g.P("func (p *Flux", typ, ") SubscribeOn(s ", rxPkg, ".Scheduler) *Flux", typ, " {")
+	g.P("p.f.SubscribeOn(s)")
+	g.P("return p")
+	g.P("}")
+	g.P()
+	g.P("func (p *Flux", typ, ") Subscribe(ctx ", contextPkg, ".Context) {")
+	g.P("p.f.Subscribe(ctx)")
+	g.P("}")
+	g.P()
+	g.P("type Sink", typ, " interface {")
+	g.P("Next(*", typ, ")")
+	g.P("Error(error)")
+	g.P("Complete()")
+	g.P("}")
+	g.P()
+	g.P("type _Sink_", typ, " struct {")
+	g.P("d ", rxPkg, ".Producer")
+	g.P("n int32")
+	g.P("}")
+	g.P()
+	g.P("func (p *_Sink_", typ, ") Error(err error) {")
+	g.P("p.d.Error(err)")
+	g.P("}")
+	g.P()
+	g.P("func (p *_Sink_", typ, ") Complete() {")
+	g.P("p.d.Complete()")
+	g.P("}")
+	g.P()
+	g.P("func (p *_Sink_", typ, ") Next(v *", typ, ") {")
+	g.P("raw,err := proto.Marshal(v)")
+	g.P("if err != nil {")
+	g.P("panic(err)")
+	g.P("}")
+	g.P("if ", atomicPkg, ".AddInt32(&(p.n), 1) == 1 {")
+	g.P("p.d.Next(", payloadPkg, ".New(raw, nil))")
+	g.P("return")
+	g.P("}")
+	g.P("p.d.Next(", payloadPkg, ".New(raw, nil))")
+	g.P("}")
+	g.P()
+
+	g.P("func NewFlux", typ, "(g func(", contextPkg, ".Context, Sink", typ, ")) *Flux", typ, " {")
+	g.P("f := ", rxPkg, ".NewFlux(func(ctx ", contextPkg, ".Context, producer ", rxPkg, ".Producer) {")
+	g.P("pd := &_Sink_", typ, "{")
+	g.P("d: producer,")
+	g.P("}")
+	g.P("g(ctx, pd)")
+	g.P("})")
+	g.P("return &Flux", typ, "{f}")
+	g.P("}")
+	g.P()
+}
+
 func (g *rrpc) generateServerSignature(servName string, method *pb.MethodDescriptorProto) string {
 	origMethName := method.GetName()
 	methName := generator.CamelCase(origMethName)
-	var reqArgs []string
-	reqArgs = append(reqArgs, contextPkg+".Context")
-	ret := "(*" + g.typeName(method.GetOutputType()) + ", error)"
-	reqArgs = append(reqArgs, "*"+g.typeName(method.GetInputType()))
-	reqArgs = append(reqArgs, rrpcPkg+".Metadata")
-	return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
+
+	// RequestResponse
+	if !method.GetClientStreaming() && !method.GetServerStreaming() {
+		var reqArgs []string
+		reqArgs = append(reqArgs, contextPkg+".Context")
+		ret := "(*" + g.typeName(method.GetOutputType()) + ", error)"
+		reqArgs = append(reqArgs, "*"+g.typeName(method.GetInputType()))
+		reqArgs = append(reqArgs, rrpcPkg+".Metadata")
+		return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
+	}
+	// RequestStream
+	if !method.GetClientStreaming() {
+		var reqArgs []string
+		reqArgs = append(reqArgs, contextPkg+".Context")
+		ret := "*" + g.fluxName(method.GetOutputType())
+		reqArgs = append(reqArgs, "*"+g.typeName(method.GetInputType()))
+		reqArgs = append(reqArgs, rrpcPkg+".Metadata")
+		return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
+	}
+	// RequestChannel
+	panic("todo: bi-stream")
 }
 
 func (g *rrpc) generateClientMethod(servName, fullServName, serviceDescVar string, method *pb.MethodDescriptorProto) {
 	methodName := method.GetName()
 	outType := g.typeName(method.GetOutputType())
+	log.Println("------> debug:", method.GetOutputType())
 
 	g.P("func (c *", unexport(servName), "Client) ", g.generateClientSignature(servName, method), " {")
 	if !method.GetServerStreaming() && !method.GetClientStreaming() {
@@ -156,17 +265,42 @@ func (g *rrpc) generateClientMethod(servName, fullServName, serviceDescVar strin
 		g.P("return out, nil")
 		g.P("}")
 		g.P()
+		return
+	}
+	// RequestStream
+	if !method.GetClientStreaming() {
+		fluxOut := g.fluxName(method.GetOutputType())
+		g.P("dec := func(f ", rxPkg, ".Flux) interface{} {")
+		g.P("return &", fluxOut, "{f}")
+		g.P("}")
+		g.P(`out := c.cc.InvokeStream(ctx, "`, fullServName, `", "`, methodName, `", in, dec, opts...)`)
+		g.P("return out.(*", fluxOut, ")")
+		g.P("}")
+		g.P()
+		return
 	}
 	// TODO: support stream
+	panic("todo: bi-stream")
 }
 
 func (g *rrpc) generateClientSignature(servName string, method *pb.MethodDescriptorProto) string {
 	origMethName := method.GetName()
 	methName := generator.CamelCase(origMethName)
 	// TODO: support stream
-	reqArg := ", in *" + g.typeName(method.GetInputType())
-	respName := "*" + g.typeName(method.GetOutputType())
-	return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) (%s, error)", methName, contextPkg, reqArg, rrpcPkg, respName)
+	log.Printf("--> #%s: ss=%t,cs=%t\n", methName, method.GetServerStreaming(), method.GetClientStreaming())
+	// RequestResponse
+	if !method.GetClientStreaming() && !method.GetServerStreaming() {
+		reqArg := ", in *" + g.typeName(method.GetInputType())
+		respName := "(*" + g.typeName(method.GetOutputType()) + ", error)"
+		return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) %s", methName, contextPkg, reqArg, rrpcPkg, respName)
+	}
+	// RequestStream
+	if !method.GetClientStreaming() {
+		reqArg := ", in *" + g.typeName(method.GetInputType())
+		return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) *%s", methName, contextPkg, reqArg, rrpcPkg, g.fluxName(method.GetOutputType()))
+	}
+	// RequestChannel
+	panic("todo: bi-stream ")
 }
 
 // Given a type name defined in a .proto, return its name as we will print it.
@@ -181,20 +315,38 @@ func (g *rrpc) objectNamed(name string) generator.Object {
 
 func (g *rrpc) generateServerMethod(servName, fullServName string, method *pb.MethodDescriptorProto) string {
 	methName := generator.CamelCase(method.GetName())
-	hname := fmt.Sprintf("_%s_%s_Handler", servName, methName)
-	inType := g.typeName(method.GetInputType())
-	g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error, md ", rrpcPkg, ".Metadata) (interface{}, error) {")
-	g.P("in := new(", inType, ")")
-	g.P("err := dec(in)")
-	g.P("if err != nil {")
-	g.P("return nil, err")
-	g.P("}")
-	g.P("return srv.(", servName, "Server).", methName, "(ctx, in, md)")
-	g.P("}")
-	return hname
+	if !method.GetClientStreaming() && !method.GetServerStreaming() {
+		hname := fmt.Sprintf("_%s_%s_Handler", servName, methName)
+		inType := g.typeName(method.GetInputType())
+		g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error, md ", rrpcPkg, ".Metadata) (interface{}, error) {")
+		g.P("in := new(", inType, ")")
+		g.P("err := dec(in)")
+		g.P("if err != nil {")
+		g.P("return nil, err")
+		g.P("}")
+		g.P("return srv.(", servName, "Server).", methName, "(ctx, in, md)")
+		g.P("}")
+		return hname
+	}
+	// RequestStream
+	if !method.GetClientStreaming() {
+		hname := fmt.Sprintf("_%s_%s_Handler", servName, methName)
+		inType := g.typeName(method.GetInputType())
+		g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error, md ", rrpcPkg, ".Metadata) (interface{}, error) {")
+		g.P("in := new(", inType, ")")
+		g.P("err := dec(in)")
+		g.P("if err != nil {")
+		g.P("return nil, err")
+		g.P("}")
+		g.P("return srv.(", servName, "Server).", methName, "(ctx, in, md), nil")
+		g.P("}")
+		return hname
+	}
+	panic("todo: bi stream")
 }
 
 func (g *rrpc) GenerateImports(file *generator.FileDescriptor) {
+
 }
 
 func (g *rrpc) P(args ...interface{}) { g.gen.P(args...) }

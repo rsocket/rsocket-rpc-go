@@ -33,7 +33,7 @@ func (p *Server) ToRSocket() rsocket.RSocket {
 	return rsocket.NewAbstractSocket(
 		rsocket.RequestResponse(func(msg payload.Payload) rx.Mono {
 			return rx.NewMono(func(ctx context.Context, sink rx.MonoProducer) {
-				res, err := p.MockRequestResponse(ctx, msg)
+				res, err := p.toRequestResponse(ctx, msg)
 				if err != nil {
 					sink.Error(err)
 					return
@@ -55,10 +55,37 @@ func (p *Server) ToRSocket() rsocket.RSocket {
 				}
 			})
 		}),
+		rsocket.RequestStream(func(msg payload.Payload) rx.Flux {
+			return rx.NewFlux(func(ctx context.Context, producer rx.Producer) {
+				// TODO: support single stream
+			})
+		}),
 	)
 }
 
-func (p *Server) MockRequestResponse(ctx context.Context, req payload.Payload) (res interface{}, err error) {
+func (p *Server) toRequestStream(ctx context.Context, req payload.Payload) (res interface{}, err error) {
+	m, ok := req.Metadata()
+	if !ok {
+		err = errors.New("rrpc: missing metadata in Payload")
+		return
+	}
+	meta := (Metadata)(m)
+	ss, ok := p.m[string(meta.Service())]
+	if !ok {
+		err = errors.Errorf("rrpc: no such service %s", string(meta.Service()))
+		return
+	}
+	md, ok := ss.md[string(meta.Method())]
+	if !ok {
+		err = errors.Errorf("rrpc: no such method %s", string(meta.Method()))
+		return
+	}
+	res, err = md.Handler(ctx, ss.ss, p.getUnmarshaller(req.Data()), meta)
+	return
+
+}
+
+func (p *Server) toRequestResponse(ctx context.Context, req payload.Payload) (res interface{}, err error) {
 	m, ok := req.Metadata()
 	if !ok {
 		err = errors.New("rrpc: missing metadata in Payload")

@@ -16,4 +16,10 @@ message Pong {
 service PingPong {
     rpc ping (Ping) returns (Pong) {
     }
+    rpc lotsOfPongs (Ping) returns (stream Pong) {
+    }
+
+    //    rpc rousingGameOfPingPong (stream Ping) returns (stream Pong) {
+    //    }
+
 }

@@ -1,6 +1,14 @@
 package rrpc
 
-import "context"
+import (
+	"context"
+
+	"github.com/rsocket/rsocket-go/rx"
+)
+
+type rawFlux interface {
+	Raw() rx.Flux
+}
 
 type methodHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error, m Metadata) (interface{}, error)
 

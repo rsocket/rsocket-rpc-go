@@ -41,7 +41,7 @@ func MarshallTracing(carrier map[string]string) (b []byte, err error) {
 	return
 }
 
-func UnmarshallTracing(tracer Tracer, tracing []byte) (SpanContext, error) {
+func UnmarshallTracingCarrier(tracing []byte) (map[string]string, error) {
 	if len(tracing) < 1 {
 		return nil, errEmptyTracing
 	}
@@ -71,6 +71,14 @@ func UnmarshallTracing(tracer Tracer, tracing []byte) (SpanContext, error) {
 	m := make(map[string]string)
 	for i, l := 0, len(pairs); i < l; i += 2 {
 		m[pairs[i]] = pairs[i+1]
+	}
+	return m, nil
+}
+
+func UnmarshallTracing(tracer Tracer, tracing []byte) (SpanContext, error) {
+	m, err := UnmarshallTracingCarrier(tracing)
+	if err != nil {
+		return nil, err
 	}
 	return tracer.Extract(opentracing.TextMap, opentracing.TextMapCarrier(m))
 }

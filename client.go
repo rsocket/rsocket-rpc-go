@@ -15,6 +15,24 @@ type ClientConn struct {
 	t Tracer
 }
 
+func (p *ClientConn) InvokeStream(ctx context.Context,
+	srv string,
+	method string,
+	in proto.Message,
+	dec func(flux rx.Flux) interface{},
+	opts ...CallOption,
+) interface{} {
+	o := &callOption{}
+	for i := range opts {
+		opts[i](o)
+	}
+	sent, err := NewRequestPayload(srv, method, in, o.tracing, o.metadata)
+	if err != nil {
+		panic(err)
+	}
+	return dec(p.c.RequestStream(sent))
+}
+
 func (p *ClientConn) Invoke(
 	ctx context.Context,
 	srv string,
