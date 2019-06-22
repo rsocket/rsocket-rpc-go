@@ -2,6 +2,7 @@ package ping_pong_test
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"testing"
 	"time"
@@ -15,10 +16,19 @@ import (
 )
 
 type pingPongServer struct {
+	totals int
 }
 
-func (p *pingPongServer) LotsOfPongs(context.Context, *pb.Ping, rrpc.Metadata) *pb.FluxPong {
-	panic("implement me")
+func (p *pingPongServer) LotsOfPongs(ctx context.Context, in *pb.Ping, m rrpc.Metadata) *pb.FluxPong {
+	ball := in.GetBall()
+	return pb.NewFluxPong(func(ctx context.Context, producer pb.SinkPong) {
+		for i := 0; i < p.totals; i++ {
+			producer.Next(&pb.Pong{
+				Ball: fmt.Sprintf("%s_%d", ball, i),
+			})
+		}
+		producer.Complete()
+	})
 }
 
 func (p *pingPongServer) Ping(ctx context.Context, in *pb.Ping, m rrpc.Metadata) (*pb.Pong, error) {
@@ -50,8 +60,12 @@ func doTest(addr string, t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	const streamTotals = 10
+
 	go func(ctx context.Context) {
-		ss := &pingPongServer{}
+		ss := &pingPongServer{
+			totals: streamTotals,
+		}
 		s := rrpc.NewServer()
 		pb.RegisterPingPongServer(s, ss)
 		err := rsocket.Receive().
@@ -76,22 +90,33 @@ func doTest(addr string, t *testing.T) {
 	res, err := c.Ping(ctx, req, rrpc.WithMetadata([]byte("this_is_metadata")))
 	assert.NoError(t, err, "cannot get response")
 	assert.Equal(t, req.Ball, res.Ball, "bad response")
-}
 
-func TestFlux(t *testing.T) {
-	fx := pb.NewFluxPong(func(ctx context.Context, producer pb.SinkPong) {
-		for range [10]struct{}{} {
-			producer.Next(&pb.Pong{
-				Ball: time.Now().String(),
-			})
-		}
-		producer.Complete()
-	})
-
-	fx.
-		DoOnNext(func(ctx context.Context, subscription rx.Subscription, pong *pb.Pong) {
-			log.Println("pong:", pong.Ball)
+	var totals int32
+	c.LotsOfPongs(ctx, req, rrpc.WithMetadata([]byte("this_is_metadata"))).
+		DoOnNext(func(i context.Context, subscription rx.Subscription, pong *pb.Pong) {
+			ball := pong.GetBall()
+			log.Println("pong stream:", pong)
+			assert.Equal(t, fmt.Sprintf("%s_%d", req.GetBall(), totals), ball)
+			totals++
 		}).
-		Subscribe(context.Background())
-
+		Subscribe(ctx)
+	assert.Equal(t, streamTotals, int(totals))
 }
+
+//func TestGeneratedFlux(t *testing.T) {
+//	fx := pb.NewFluxPong(func(ctx context.Context, producer pb.SinkPong) {
+//		for range [10]struct{}{} {
+//			producer.Next(&pb.Pong{
+//				Ball: time.Now().String(),
+//			})
+//		}
+//		producer.Complete()
+//	})
+//
+//	fx.
+//		DoOnNext(func(ctx context.Context, subscription rx.Subscription, pong *pb.Pong) {
+//			log.Println("pong:", pong.Ball)
+//		}).
+//		Subscribe(context.Background())
+//
+//}

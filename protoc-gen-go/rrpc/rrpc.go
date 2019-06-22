@@ -2,7 +2,6 @@ package rrpc
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
@@ -27,6 +26,8 @@ var (
 	rxPkg      string
 	payloadPkg string
 )
+
+var fluxNames []string
 
 func init() {
 	generator.RegisterPlugin(new(rrpc))
@@ -66,8 +67,15 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 		g.generateService(file, service, i)
 	}
 
-	g.generateFlux(".ping_pong.Pong")
-
+	finish := make(map[string]bool)
+	for _, it := range fluxNames {
+		_, ok := finish[it]
+		if ok {
+			continue
+		}
+		finish[it] = true
+		g.generateFlux(it)
+	}
 }
 
 func (g *rrpc) generateService(file *generator.FileDescriptor, service *pb.ServiceDescriptorProto, index int) {
@@ -137,10 +145,22 @@ func (g *rrpc) generateService(file *generator.FileDescriptor, service *pb.Servi
 	g.P("HandlerType: (*", serverType, ")(nil),")
 	g.P("Methods: []", rrpcPkg, ".MethodDesc{")
 	for i, method := range service.Method {
-		g.P("{")
-		g.P("Name: ", strconv.Quote(method.GetName()), ",")
-		g.P("Handler: ", handlerNames[i], ",")
-		g.P("},")
+		if !method.GetClientStreaming() && !method.GetServerStreaming() {
+			g.P("{")
+			g.P("Name: ", strconv.Quote(method.GetName()), ",")
+			g.P("Handler: ", handlerNames[i], ",")
+			g.P("},")
+		}
+	}
+	g.P("},")
+	g.P("Streams: []", rrpcPkg, ".StreamDesc{")
+	for i, method := range service.Method {
+		if !method.GetClientStreaming() && method.GetServerStreaming() {
+			g.P("{")
+			g.P("Name: ", strconv.Quote(method.GetName()), ",")
+			g.P("Handler: ", handlerNames[i], ",")
+			g.P("},")
+		}
 	}
 	g.P("},")
 	g.P("}")
@@ -249,14 +269,13 @@ func (g *rrpc) generateServerSignature(servName string, method *pb.MethodDescrip
 		return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
 	}
 	// RequestChannel
+	// TODO: support channel
 	panic("todo: bi-stream")
 }
 
 func (g *rrpc) generateClientMethod(servName, fullServName, serviceDescVar string, method *pb.MethodDescriptorProto) {
 	methodName := method.GetName()
 	outType := g.typeName(method.GetOutputType())
-	log.Println("------> debug:", method.GetOutputType())
-
 	g.P("func (c *", unexport(servName), "Client) ", g.generateClientSignature(servName, method), " {")
 	if !method.GetServerStreaming() && !method.GetClientStreaming() {
 		g.P("out := new(", outType, ")")
@@ -279,15 +298,13 @@ func (g *rrpc) generateClientMethod(servName, fullServName, serviceDescVar strin
 		g.P()
 		return
 	}
-	// TODO: support stream
+	// TODO: support channel
 	panic("todo: bi-stream")
 }
 
 func (g *rrpc) generateClientSignature(servName string, method *pb.MethodDescriptorProto) string {
 	origMethName := method.GetName()
 	methName := generator.CamelCase(origMethName)
-	// TODO: support stream
-	log.Printf("--> #%s: ss=%t,cs=%t\n", methName, method.GetServerStreaming(), method.GetClientStreaming())
 	// RequestResponse
 	if !method.GetClientStreaming() && !method.GetServerStreaming() {
 		reqArg := ", in *" + g.typeName(method.GetInputType())
@@ -296,10 +313,12 @@ func (g *rrpc) generateClientSignature(servName string, method *pb.MethodDescrip
 	}
 	// RequestStream
 	if !method.GetClientStreaming() {
+		fluxNames = append(fluxNames, method.GetOutputType())
 		reqArg := ", in *" + g.typeName(method.GetInputType())
 		return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) *%s", methName, contextPkg, reqArg, rrpcPkg, g.fluxName(method.GetOutputType()))
 	}
 	// RequestChannel
+	// TODO: support channel
 	panic("todo: bi-stream ")
 }
 

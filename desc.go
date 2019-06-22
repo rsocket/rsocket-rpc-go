@@ -11,15 +11,23 @@ type rawFlux interface {
 }
 
 type methodHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error, m Metadata) (interface{}, error)
+type streamHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error, m Metadata) (interface{}, error)
 
 type ServiceDesc struct {
 	Name        string
 	HandlerType interface{}
 	Methods     []MethodDesc
-	Metadata    interface{}
+	Streams     []StreamDesc
+
+	Metadata interface{}
 }
 
 type MethodDesc struct {
 	Name    string
 	Handler methodHandler
+}
+
+type StreamDesc struct {
+	Name    string
+	Handler streamHandler
 }

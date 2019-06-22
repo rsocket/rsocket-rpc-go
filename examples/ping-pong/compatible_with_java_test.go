@@ -2,15 +2,16 @@ package ping_pong_test
 
 import (
 	"context"
+	"log"
 	"testing"
 	"time"
 
 	"github.com/opentracing/opentracing-go/mocktracer"
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/logger"
+	"github.com/rsocket/rsocket-go/rx"
 	rrpc "github.com/rsocket/rsocket-rpc-go"
 	pb "github.com/rsocket/rsocket-rpc-go/examples/ping-pong"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +43,14 @@ func TestNewPingPongClient(t *testing.T) {
 	req := &pb.Ping{
 		Ball: "Hello World!",
 	}
-	res, err := c.Ping(context.Background(), req, rrpc.WithMetadata([]byte("FROM_GOLANG")))
-	assert.NoError(t, err, "cannot get response")
-	assert.Equal(t, req.Ball, res.Ball, "bad response")
+
+	c.LotsOfPongs(context.Background(), req).
+		DoOnNext(func(i context.Context, subscription rx.Subscription, pong *pb.Pong) {
+			log.Println("pong:", pong.Ball)
+		}).
+		Subscribe(context.Background())
+
+	//res, err := c.Ping(context.Background(), req, rrpc.WithMetadata([]byte("FROM_GOLANG")))
+	//assert.NoError(t, err, "cannot get response")
+	//assert.Equal(t, req.Ball, res.Ball, "bad response")
 }
