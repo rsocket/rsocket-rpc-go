@@ -1,5 +1,11 @@
 # rsocket-rpc-go
-RSocket RPC Golang
+![logo](./logo.jpg)
+
+[![Travis (.org)](https://img.shields.io/travis/rsocket/rsocket-rpc-go.svg)]((https://img.shields.io/travis/rsocket/rsocket-rpc-go.svg))
+[![GoDoc](https://godoc.org/github.com/rsocket/rsocket-rpc-go?status.svg)](https://godoc.org/github.com/rsocket/rsocket-rpc-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/rsocket/rsocket-rpc-go)](https://goreportcard.com/report/github.com/rsocket/rsocket-rpc-go)
+[![License](https://img.shields.io/github/license/rsocket/rsocket-rpc-go.svg)](https://github.com/rsocket/rsocket-rpc-go/blob/master/LICENSE)
+[![GitHub Release](https://img.shields.io/github/release-pre/rsocket/rsocket-rpc-go.svg)](https://github.com/rsocket/rsocket-rpc-go/releases)
 
 ## NOTICE
 It is still under development. **DO NOT USE IT IN A PRODUCTION ENVIRONMENT!!!**
