@@ -16,4 +16,4 @@ install:
 script:
   - go test -v .
   - $HOME/protoc/bin/protoc --go_out=plugins=rrpc:./examples/ping-pong ./examples/ping-pong.proto
-  - go test -v ./examples/ping-pong/ping-pong_test.go
+  - go test -v ./...
