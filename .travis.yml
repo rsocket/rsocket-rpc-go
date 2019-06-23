@@ -1,0 +1,25 @@
+language: go
+
+go:
+  - '1.11'
+  - '1.12'
+
+env:
+  - PATH=$HOME/protoc/bin:$PATH
+  - GO111MODULE=on
+
+before_install:
+  - go get -u golang.org/x/lint/golint
+  - go get -u github.com/golangci/golangci-lint/cmd/golangci-lint
+
+install:
+  - curl -L https://github.com/google/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip -o /tmp/protoc.zip
+  - unzip /tmp/protoc.zip -d "$HOME"/protoc
+
+script:
+  - cd ./protoc-gen-go
+  - go build -v .
+  - mv ./protoc-gen-go $HOME/protoc/bin
+  - cd ../examples
+  - protoc --go_out=plugins=rrpc:./ping-pong ./ping-pong.proto
+  - go test ./ping-pong/ping-pong_test.go
