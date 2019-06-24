@@ -1,4 +1,3 @@
-// protoc --go_out=plugins=rrpc:./ping-pong ./ping-pong.proto
 syntax = "proto3";
 
 package ping_pong;

@@ -14,5 +14,5 @@ install:
   - go get -u github.com/rsocket/rsocket-rpc-go/protoc-gen-go
 
 script:
-  - $HOME/protoc/bin/protoc --go_out=plugins=rrpc:./examples/ping-pong ./examples/ping-pong.proto
-  - go test -v .
+  - $HOME/protoc/bin/protoc -I examples/ping-pong/ examples/ping-pong/ping-pong.proto --go_out=plugins=rrpc:./examples/ping-pong
+  - go test -v ./...

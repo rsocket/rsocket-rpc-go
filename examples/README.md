@@ -4,7 +4,7 @@
 
 - Generate codes first.
 ```bash
-$ protoc --go_out=plugins=rrpc:./ping-pong ./ping-pong.proto
+$ protoc -I ping-pong/ ping-pong/ping-pong.proto --go_out=plugins=rrpc:ping-pong
 ```
 
 - Run `ping-pong_test.go`.

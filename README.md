@@ -20,7 +20,7 @@ $ go get -u github.com/rsocket/rsocket-rpc-go/protoc-gen-go
 ```
 
 ## Generate Codes
-Just use command below:
+If you are familiar with grpc, just replace the `grpc` with `rrpc`:
 ```bash
 $ protoc --go_out=plugins=rrpc:./ping-pong ./ping-pong.proto
 ```
