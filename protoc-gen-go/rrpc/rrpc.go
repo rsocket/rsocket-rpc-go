@@ -75,6 +75,8 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 		}
 		finish[it] = true
 		g.generateFlux(it)
+		// test
+		g.generateMono(it)
 	}
 }
 
@@ -172,6 +174,40 @@ func (g *rrpc) fluxName(msgType string) string {
 	return "Flux" + typ
 }
 
+func (g *rrpc) generateMono(msgType string) {
+	typ := g.typeName(msgType)
+
+	g.P("type Mono", typ, " struct {")
+	g.P("m ", rxPkg, ".Mono")
+	g.P("}")
+	g.P()
+	g.P("func (p *Mono", typ, ") Raw() ", rxPkg, ".Mono {")
+	g.P("return p.m")
+	g.P("}")
+	g.P()
+
+	g.P("func (p *Mono", typ, ") DoOnSuccess(fn func(", contextPkg, ".Context, ", rxPkg, ".Subscription, *", typ, ")) *Mono", typ, " {")
+	g.P("p.m.DoOnSuccess(func(ctx ", contextPkg, ".Context, s ", rxPkg, ".Subscription, elem ", payloadPkg, ".Payload) {")
+	g.P("o := new(", typ, ")")
+	g.P("if err := proto.Unmarshal(elem.Data(), o); err != nil {")
+	g.P("panic(err)")
+	g.P("}")
+	g.P("fn(ctx, s, o)")
+	g.P("})")
+	g.P("return p")
+	g.P("}")
+	g.P()
+	g.P("func (p *Mono", typ, ") SubscribeOn(s ", rxPkg, ".Scheduler) *Mono", typ, " {")
+	g.P("p.m.SubscribeOn(s)")
+	g.P("return p")
+	g.P("}")
+	g.P()
+	g.P("func (p *Mono", typ, ") Subscribe(ctx ", contextPkg, ".Context) {")
+	g.P("p.m.Subscribe(ctx)")
+	g.P("}")
+	g.P()
+}
+
 func (g *rrpc) generateFlux(msgType string) {
 	typ := g.typeName(msgType)
 	g.P("type Flux", typ, " struct {")
@@ -180,6 +216,11 @@ func (g *rrpc) generateFlux(msgType string) {
 	g.P()
 	g.P("func (p *Flux", typ, ") Raw() ", rxPkg, ".Flux {")
 	g.P("return p.f")
+	g.P("}")
+	g.P()
+	g.P("func (p *Flux", typ, ") DoOnError(fn func(", contextPkg, ".Context, error)) *Flux", typ, " {")
+	g.P("p.f.DoOnError(fn)")
+	g.P("return p")
 	g.P("}")
 	g.P()
 	g.P("func (p *Flux", typ, ") DoOnNext(fn func(", contextPkg, ".Context, ", rxPkg, ".Subscription, *", typ, ")) *Flux", typ, " {")

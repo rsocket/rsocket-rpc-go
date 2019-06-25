@@ -60,9 +60,10 @@ func (p *Server) handleRequestResponse(msg payload.Payload) rx.Mono {
 
 func (p *Server) handleStream(msg payload.Payload) rx.Flux {
 	v, err := p.makeStream(context.Background(), msg)
-	// TODO: process error
 	if err != nil {
-		panic(err)
+		return rx.NewFlux(func(ctx context.Context, producer rx.Producer) {
+			producer.Error(err)
+		})
 	}
 	return v.(rawFlux).Raw()
 }

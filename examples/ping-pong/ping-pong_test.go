@@ -112,7 +112,6 @@ func doTest(addr string, t *testing.T) {
 //		}
 //		producer.Complete()
 //	})
-//
 //	fx.
 //		DoOnNext(func(ctx context.Context, subscription rx.Subscription, pong *pb.Pong) {
 //			log.Println("pong:", pong.Ball)

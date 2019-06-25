@@ -26,6 +26,9 @@ func TestMarshallAndUnmarshallTracing(t *testing.T) {
 
 	err := tracer.Inject(span.Context(), opentracing.TextMap, carrier)
 	require.NoError(t, err, "inject failed")
+
+	log.Println("carrier after inject:", carrier)
+
 	raw, err := MarshallTracing(carrier)
 	require.NoError(t, err, "marshall failed")
 
