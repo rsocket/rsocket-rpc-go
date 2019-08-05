@@ -501,7 +501,7 @@ func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescripto
 
 	var found = false
 	for _, method := range service.GetMethod() {
-		if method.GetClientStreaming() && !method.GetServerStreaming() {
+		if !method.GetClientStreaming() {
 			continue
 		} else {
 			found = true
