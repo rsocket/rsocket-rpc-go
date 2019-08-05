@@ -5,8 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-
-	"github.com/rsocket/rsocket-rpc-go/internal/common"
 )
 
 const Version = uint16(1)
@@ -30,64 +28,82 @@ func (p Metadata) String() string {
 	return fmt.Sprintf(
 		"Metadata{version=%d, service=%s, method=%s, tracing=%s, metadata=%s}",
 		p.Version(),
-		common.Bytes2str(p.Service()),
-		common.Bytes2str(p.Method()),
+		p.Service(),
+		p.Method(),
 		tr,
 		m,
 	)
 }
 
 func (p Metadata) Version() uint16 {
-	raw := p.pp()
-	_ = raw[1]
-	return binary.BigEndian.Uint16(raw)
+	return binary.BigEndian.Uint16(p.raw())
 }
 
-func (p Metadata) Service() []byte {
-	a, b := p.seekNext(2)
-	raw := p.pp()
-	return raw[a:b]
+func (p Metadata) Service() string {
+	offset := 2
+	raw := p.raw()
+
+	serviceLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2
+
+	return string(raw[offset : offset+serviceLen])
 }
 
-func (p Metadata) Method() []byte {
-	raw := p.pp()
-	a, b := 0, 2
-	for range [2]struct{}{} {
-		a, b = p.seekNext(b)
-	}
-	return raw[a:b]
+func (p Metadata) Method() string {
+	offset := 2
+	raw := p.raw()
+
+	serviceLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2 + serviceLen
+
+	methodLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2
+
+	return string(raw[offset : offset+methodLen])
 }
 
 func (p Metadata) Tracing() []byte {
-	a, b := 0, 2
-	for range [3]struct{}{} {
-		a, b = p.seekNext(b)
+	offset := 2
+	raw := p.raw()
+
+	serviceLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2 + serviceLen
+
+	methodLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2 + methodLen
+
+	tracingLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2
+
+	if tracingLen > 0 {
+		return raw[offset : offset+tracingLen]
+	} else {
+		return nil
 	}
-	raw := p.pp()
-	return raw[a:b]
 }
 
 func (p Metadata) Metadata() []byte {
-	b := 2
-	for range [3]struct{}{} {
-		_, b = p.seekNext(b)
-	}
-	raw := p.pp()
-	return raw[b:]
+	offset := 2
+	raw := p.raw()
+
+	serviceLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2 + serviceLen
+
+	methodLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2 + methodLen
+
+	tracingLen := int(binary.BigEndian.Uint16(raw[offset : offset+2]))
+	offset += 2 + tracingLen
+
+	return raw[offset:]
+
 }
 
-func (p Metadata) pp() []byte {
+func (p Metadata) raw() []byte {
 	return ([]byte)(p)
 }
 
-func (p Metadata) seekNext(offset int) (int, int) {
-	raw := p.pp()
-	l := binary.BigEndian.Uint16(raw[offset:])
-	offset += 2
-	return offset, offset + int(l)
-}
-
-func encodeMetadata(service, method, tracing, metadata []byte) (m Metadata, err error) {
+func EncodeMetadata(service string, method string, tracing []byte, metadata []byte) (m Metadata, err error) {
 	w := &bytes.Buffer{}
 	// write version
 	err = binary.Write(w, binary.BigEndian, Version)
@@ -99,7 +115,7 @@ func encodeMetadata(service, method, tracing, metadata []byte) (m Metadata, err 
 	if err != nil {
 		return
 	}
-	_, err = w.Write(service)
+	_, err = w.WriteString(service)
 	if err != nil {
 		return
 	}
@@ -108,7 +124,7 @@ func encodeMetadata(service, method, tracing, metadata []byte) (m Metadata, err 
 	if err != nil {
 		return
 	}
-	_, err = w.Write(method)
+	_, err = w.WriteString(method)
 	if err != nil {
 		return
 	}

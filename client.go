@@ -2,69 +2,78 @@ package rrpc
 
 import (
 	"context"
-
-	"github.com/golang/protobuf/proto"
+	"github.com/jjeffcaii/reactor-go/scheduler"
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/payload"
-	"github.com/rsocket/rsocket-go/rx"
+	"github.com/rsocket/rsocket-go/rx/flux"
+	"github.com/rsocket/rsocket-go/rx/mono"
 )
 
 type ClientConn struct {
-	c rsocket.RSocket
-	m MeterRegistry
-	t Tracer
+	rSocket       rsocket.RSocket
+	meterRegistry MeterRegistry
+	tracer        Tracer
 }
 
-func (p *ClientConn) InvokeStream(ctx context.Context,
-	srv string,
-	method string,
-	in proto.Message,
-	dec func(flux rx.Flux) interface{},
-	opts ...CallOption,
-) interface{} {
-	o := &callOption{}
-	for i := range opts {
-		opts[i](o)
-	}
-	sent, err := NewRequestPayload(srv, method, in, o.tracing, o.metadata)
-	if err != nil {
-		panic(err)
-	}
-	return dec(p.c.RequestStream(sent))
-}
-
-func (p *ClientConn) Invoke(
+func (p *ClientConn) InvokeRequestResponse(
 	ctx context.Context,
 	srv string,
 	method string,
-	in proto.Message,
-	out proto.Message,
+	data *[]byte,
 	opts ...CallOption,
-) (err error) {
+) (<-chan payload.Payload, <-chan error) {
 	o := &callOption{}
 	for i := range opts {
-		opts[i](o)
+		opt := opts[i]
+		if opt != nil {
+			opt(o)
+		}
 	}
-	sent, err := NewRequestPayload(srv, method, in, o.tracing, o.metadata)
-	if err != nil {
-		return
+
+	sent, e := NewRequestPayload(srv, method, *data, o.tracing, o.metadata)
+	if e != nil {
+		err := make(chan error, 1)
+		err <- e
+		close(err)
+		return nil, err
 	}
-	p.c.RequestResponse(sent).
-		DoOnSuccess(func(ctx context.Context, s rx.Subscription, elem payload.Payload) {
-			err = proto.Unmarshal(elem.Data(), out.(proto.Message))
-		}).
-		DoOnError(func(ctx context.Context, e error) {
-			err = e
-		}).
-		Subscribe(ctx)
-	return
+
+	m := p.rSocket.RequestResponse(sent)
+
+	return mono.ToChannel(m, ctx)
+}
+
+func (p *ClientConn) InvokeRequestStream(
+	ctx context.Context,
+	srv string,
+	method string,
+	data *[]byte,
+	opts ...CallOption,
+) (<-chan payload.Payload, <-chan error) {
+	o := &callOption{}
+	for i := range opts {
+		opt := opts[i]
+		if opt != nil {
+			opt(o)
+		}
+	}
+
+	sent, e := NewRequestPayload(srv, method, *data, o.tracing, o.metadata)
+	if e != nil {
+		err := make(chan error, 1)
+		err <- e
+		close(err)
+		return nil, err
+	}
+
+	return flux.ToChannel(p.rSocket.RequestStream(sent), ctx)
 }
 
 func NewClientConn(c rsocket.RSocket, m MeterRegistry, t Tracer) *ClientConn {
 	return &ClientConn{
-		c: c,
-		m: m,
-		t: t,
+		rSocket:       c,
+		meterRegistry: m,
+		tracer:        t,
 	}
 }
 
@@ -85,4 +94,54 @@ func WithMetadata(metadata []byte) CallOption {
 	return func(o *callOption) {
 		o.metadata = metadata
 	}
+}
+
+func (p *ClientConn) InvokeChannel(
+	ctx context.Context,
+	srv string,
+	method string,
+	datachan chan *[]byte,
+	err chan error,
+	opts ...CallOption) (<-chan payload.Payload, <-chan error) {
+
+	o := &callOption{}
+	for i := range opts {
+		opt := opts[i]
+		if opt != nil {
+			opt(o)
+		}
+	}
+
+	inchan := make(chan payload.Payload)
+	inerr := make(chan error)
+	scheduler.Parallel().Worker().Do(func() {
+		defer close(inchan)
+		defer close(inerr)
+	loop:
+		for {
+			select {
+			case data, ok := <-datachan:
+				if ok {
+					sent, e := NewRequestPayload(srv, method, *data, o.tracing, o.metadata)
+					if e != nil {
+						inerr <- e
+					} else {
+						inchan <- sent
+					}
+				} else {
+					break loop
+				}
+			case e := <-err:
+				if e != nil {
+					inerr <- e
+				}
+			}
+		}
+	})
+
+	influx := flux.CreateFromChannel(inchan, inerr)
+
+	outflux := p.rSocket.RequestChannel(influx)
+
+	return flux.ToChannel(outflux, ctx)
 }

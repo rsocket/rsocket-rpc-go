@@ -1,30 +1,36 @@
 package rrpc
 
 import (
-	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
-	pb "github.com/golang/protobuf/protoc-gen-go/descriptor"
+	"github.com/golang/protobuf/protoc-gen-go/descriptor"
 	"github.com/golang/protobuf/protoc-gen-go/generator"
 )
 
 const (
-	atomicPkgPath  = "sync/atomic"
 	contextPkgPath = "context"
 	rrpcPkgPath    = "github.com/rsocket/rsocket-rpc-go"
 	rsocketPkgPath = "github.com/rsocket/rsocket-go"
+	schPkgPath     = "github.com/jjeffcaii/reactor-go/scheduler"
 	rxPkgPath      = "github.com/rsocket/rsocket-go/rx"
+	fluxPkgPath    = "github.com/rsocket/rsocket-go/rx/flux"
+	monoPkgPath    = "github.com/rsocket/rsocket-go/rx/mono"
 	payloadPkgPath = "github.com/rsocket/rsocket-go/payload"
+	errorsPkgPath  = "errors"
 )
 
 var (
-	atomicPkg  string
 	contextPkg string
 	rrpcPkg    string
 	rsocketPkg string
 	rxPkg      string
+	fluxPkg    string
+	monoPkg    string
 	payloadPkg string
+	errorsPkg  string
+	schPkg     string
 )
 
 var fluxNames []string
@@ -46,363 +52,570 @@ func (g *rrpc) Init(gen *generator.Generator) {
 }
 
 func (g *rrpc) Generate(file *generator.FileDescriptor) {
+	defer func() {
+		i := recover()
+		if i != nil {
+			log.Println(i)
+		}
+	}()
 	if len(file.FileDescriptorProto.Service) == 0 {
 		return
 	}
 
-	atomicPkg = string(g.gen.AddImport(atomicPkgPath))
 	contextPkg = string(g.gen.AddImport(contextPkgPath))
 	rrpcPkg = string(g.gen.AddImport(rrpcPkgPath))
 	rsocketPkg = string(g.gen.AddImport(rsocketPkgPath))
 	rxPkg = string(g.gen.AddImport(rxPkgPath))
+	fluxPkg = string(g.gen.AddImport(fluxPkgPath))
+	monoPkg = string(g.gen.AddImport(monoPkgPath))
 	payloadPkg = string(g.gen.AddImport(payloadPkgPath))
+	errorsPkg = string(g.gen.AddImport(errorsPkgPath))
+	schPkg = string(g.gen.AddImport(schPkgPath))
 
 	g.P("var _ ", contextPkg, ".Context")
 	g.P("var _ ", rrpcPkg, ".ClientConn")
 	g.P("var _ ", rsocketPkg, ".RSocket")
-	g.P("var _ ", rxPkg, ".Flux")
+	g.P("var _ ", rxPkg, ".Subscription")
+	g.P("var _ ", fluxPkg, ".Flux")
+	g.P("var _ ", monoPkg, ".Mono")
 	g.P("var _ ", payloadPkg, ".Payload")
+	g.P("var _ ", schPkg, ".Scheduler")
 
-	for i, service := range file.FileDescriptorProto.Service {
-		g.generateService(file, service, i)
-	}
-
-	finish := make(map[string]bool)
-	for _, it := range fluxNames {
-		_, ok := finish[it]
-		if ok {
-			continue
-		}
-		finish[it] = true
-		g.generateFlux(it)
-		// test
-		g.generateMono(it)
+	for _, service := range file.FileDescriptorProto.Service {
+		g.generateService(file, service)
 	}
 }
 
-func (g *rrpc) generateService(file *generator.FileDescriptor, service *pb.ServiceDescriptorProto, index int) {
-	path := fmt.Sprintf("6,%d", index) // 6 means service.
-	origServName := service.GetName()
-	fullServName := origServName
-	if pkg := file.GetPackage(); pkg != "" {
-		fullServName = pkg + "." + fullServName
+func (g *rrpc) generateService(file *generator.FileDescriptor, service *descriptor.ServiceDescriptorProto) {
+	// Constants
+	g.P("// -- Constants")
+	g.P("const ", service.GetName(), "ServiceName = \"", file.GetPackage(), ".", service.GetName(), "\"")
+	for _, method := range service.GetMethod() {
+		var method = method
+		g.P("const ", method.GetName(), "FunctionName = \"", method.GetName(), "\"")
 	}
-	servName := generator.CamelCase(origServName)
 	g.P()
-
-	// Client interface.
-	g.P("type ", servName, "Client interface {")
-	for i, method := range service.Method {
-		g.gen.PrintComments(fmt.Sprintf("%s,2,%d", path, i))
-		g.P(g.generateClientSignature(servName, method))
-	}
+	g.P("// -- client start")
+	g.generateClientInterface(service)
+	g.P()
+	g.P("type ", service.GetName(), "ClientStruct struct {")
+	g.P(service.GetName(), "Client")
+	g.P("client rsocket_rpc_go.ClientConn")
 	g.P("}")
 	g.P()
-
-	// Client structure.
-	g.P("type ", unexport(servName), "Client struct {")
-	g.P("cc *", rrpcPkg, ".ClientConn")
-	g.P("}")
+	g.generateClientFunctions(service)
 	g.P()
-
-	// NewClient factory.
-	g.P("func New", servName, "Client(s ", rsocketPkg, ".RSocket, m ", rrpcPkg, ".MeterRegistry, t ", rrpcPkg, ".Tracer) ", servName, "Client {")
-	g.P("cc := ", rrpcPkg, ".NewClientConn(s, m, t)")
-	g.P("return &", unexport(servName), "Client{cc}")
-	g.P("}")
+	g.generateClientConstruct(service)
+	g.P("// -- client end")
 	g.P()
-
-	serviceDescVar := "_" + servName + "_serviceDesc"
-	for _, method := range service.Method {
-		g.generateClientMethod(servName, fullServName, serviceDescVar, method)
-	}
-
-	// Server interface.
-	serverType := servName + "Server"
-
-	g.P("type ", serverType, " interface {")
-	for i, method := range service.Method {
-		g.gen.PrintComments(fmt.Sprintf("%s,2,%d", path, i)) // 2 means method in a service.
-		g.P(g.generateServerSignature(servName, method))
-	}
-	g.P("}")
+	g.P("// -- server start")
+	g.generateServerInterface(service)
 	g.P()
-
-	// Server registration.
-	g.P("func Register", servName, "Server(s *", rrpcPkg, ".Server, srv ", serverType, ") {")
-	g.P("s.RegisterService(&", serviceDescVar, `, srv)`)
-	g.P("}")
+	g.generateServerRequestResponse(service)
 	g.P()
+	g.generateServerRequestStream(service)
+	g.P()
+	g.generateServerRequestChannel(service)
+	//g.P()
+	//g.generateServerFireAndForget(service)
+	g.P()
+	g.generateServerConstructor(service)
 
-	// Server handler implementations.
-	var handlerNames []string
-	for _, method := range service.Method {
-		hname := g.generateServerMethod(servName, fullServName, method)
-		handlerNames = append(handlerNames, hname)
-	}
+}
 
-	// Service descriptor.
-	g.P("var ", serviceDescVar, " = ", rrpcPkg, ".ServiceDesc {")
-	g.P("Name: ", strconv.Quote(fullServName), ",")
-	g.P("HandlerType: (*", serverType, ")(nil),")
-	g.P("Methods: []", rrpcPkg, ".MethodDesc{")
-	for i, method := range service.Method {
-		if !method.GetClientStreaming() && !method.GetServerStreaming() {
-			g.P("{")
-			g.P("Name: ", strconv.Quote(method.GetName()), ",")
-			g.P("Handler: ", handlerNames[i], ",")
-			g.P("},")
+func cleanupType(t string) string {
+	index := strings.LastIndex(t, ".")
+	return t[index+1:]
+}
+
+func (g *rrpc) generateClientInterface(service *descriptor.ServiceDescriptorProto) {
+	g.P("type ", service.GetName(), "Client interface {")
+	for _, method := range service.GetMethod() {
+		g.P()
+		var method = method
+		if !method.GetClientStreaming() {
+			g.P(strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(cleanupType(method.GetOutputType())), ", <-chan error)")
+		} else {
+			g.P(strings.Title(method.GetName()), "(ctx context.Context, in chan *", cleanupType(method.GetInputType()), ", err chan error, opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(cleanupType(method.GetOutputType())), ", <-chan error)")
 		}
 	}
-	g.P("},")
-	g.P("Streams: []", rrpcPkg, ".StreamDesc{")
-	for i, method := range service.Method {
-		if !method.GetClientStreaming() && method.GetServerStreaming() {
-			g.P("{")
-			g.P("Name: ", strconv.Quote(method.GetName()), ",")
-			g.P("Handler: ", handlerNames[i], ",")
-			g.P("},")
-		}
-	}
-	g.P("},")
 	g.P("}")
 	g.P()
 }
 
-func (g *rrpc) fluxName(msgType string) string {
-	typ := g.typeName(msgType)
-	return "Flux" + typ
+func (g *rrpc) generateClientFunctions(service *descriptor.ServiceDescriptorProto) {
+	for _, method := range service.GetMethod() {
+		var method = method
+		if method.GetClientStreaming() {
+			g.generateClientRequestChannelFunction(service, method)
+		} else if method.GetServerStreaming() {
+			g.generateClientRequestStreamFunction(service, method)
+		} else {
+			g.generateClientRequestReplyFunction(service, method)
+		}
+	}
 }
 
-func (g *rrpc) generateMono(msgType string) {
-	typ := g.typeName(msgType)
-
-	g.P("type Mono", typ, " struct {")
-	g.P("m ", rxPkg, ".Mono")
+func (g *rrpc) generateClientRequestReplyFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
+	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
+	g.P("response := make(chan *", cleanupType(method.GetOutputType()), ", 1)")
+	g.P("err := make(chan error, 1)")
+	g.P("defer func() {")
+	g.P("close(response)")
+	g.P("close(err)")
+	g.P("}()")
+	g.P("d, e := proto.Marshal(in)")
+	g.P("if e != nil {")
+	g.P("return nil, err")
 	g.P("}")
 	g.P()
-	g.P("func (p *Mono", typ, ") Raw() ", rxPkg, ".Mono {")
-	g.P("return p.m")
+	g.P("payloads, errors := c.client.InvokeRequestResponse(ctx, ", service.GetName(), "ServiceName, ", method.GetName(), "FunctionName, &d, opts...)")
+	g.P()
+	g.P("select {")
+	g.P("case p, ok := <-payloads:")
+	g.P("if ok {")
+	g.P("i := payload.Payload(p)")
+	g.P("data := i.Data()")
+	g.P("res := &", cleanupType(method.GetOutputType()), "{}")
+	g.P("e := proto.Unmarshal(data, res)")
+	g.P("if e != nil {")
+	g.P("err <- e")
+	g.P("} else {")
+	g.P("response <- res")
+	g.P("}")
+	g.P("}")
+	g.P("case e := <-errors:")
+	g.P("err <- e")
 	g.P("}")
 	g.P()
-
-	g.P("func (p *Mono", typ, ") DoOnSuccess(fn func(", contextPkg, ".Context, ", rxPkg, ".Subscription, *", typ, ")) *Mono", typ, " {")
-	g.P("p.m.DoOnSuccess(func(ctx ", contextPkg, ".Context, s ", rxPkg, ".Subscription, elem ", payloadPkg, ".Payload) {")
-	g.P("o := new(", typ, ")")
-	g.P("if err := proto.Unmarshal(elem.Data(), o); err != nil {")
-	g.P("panic(err)")
+	g.P("return response, err")
 	g.P("}")
-	g.P("fn(ctx, s, o)")
+	g.P()
+}
+
+func (g *rrpc) generateClientRequestStreamFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
+	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
+	g.P("err := make(chan error)")
+	g.P("d, e := proto.Marshal(in)")
+	g.P("if e != nil {")
+	g.P("close(err)")
+	g.P("return nil, err")
+	g.P("}")
+	g.P("payloads, errors := c.client.InvokeRequestStream(ctx, ", service.GetName(), "ServiceName, ", method.GetName(), "FunctionName, &d, opts...)")
+	g.P("response := make(chan *", cleanupType(method.GetOutputType()), ", len(payloads))")
+	g.P("scheduler.Parallel().Worker().Do(func() {")
+	g.P("defer func() {")
+	g.P("close(response)")
+	g.P("close(err)")
+	g.P("}()")
+	g.P("loop:")
+	g.P("for {")
+	g.P("select {")
+	g.P("case p, ok := <-payloads:")
+	g.P("if ok {")
+	g.P("i := payload.Payload(p)")
+	g.P("data := i.Data()")
+	g.P("res := &", cleanupType(method.GetOutputType()), "{}")
+	g.P("e := proto.Unmarshal(data, res)")
+	g.P("if e != nil {")
+	g.P("err <- e")
+	g.P("break loop")
+	g.P("} else {")
+	g.P("response <- res")
+	g.P("}")
+	g.P("} else {")
+	g.P("break loop")
+	g.P("}")
+	g.P("case e := <-errors:")
+	g.P("err <- e")
+	g.P("break loop")
+	g.P("}")
+	g.P("}")
+	g.P("")
 	g.P("})")
-	g.P("return p")
-	g.P("}")
-	g.P()
-	g.P("func (p *Mono", typ, ") SubscribeOn(s ", rxPkg, ".Scheduler) *Mono", typ, " {")
-	g.P("p.m.SubscribeOn(s)")
-	g.P("return p")
-	g.P("}")
-	g.P()
-	g.P("func (p *Mono", typ, ") Subscribe(ctx ", contextPkg, ".Context) {")
-	g.P("p.m.Subscribe(ctx)")
+	g.P("return response, err")
 	g.P("}")
 	g.P()
 }
 
-func (g *rrpc) generateFlux(msgType string) {
-	typ := g.typeName(msgType)
-	g.P("type Flux", typ, " struct {")
-	g.P("f ", rxPkg, ".Flux")
+func (g *rrpc) generateClientRequestChannelFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
+	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in chan *", cleanupType(method.GetInputType()), ", err chan error", ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
+	g.P("bytesin := make(chan *[]byte)")
+	g.P("errin := make(chan error)")
+	g.P("scheduler.Parallel().Worker().Do(func() {")
+	g.P("defer close(bytesin)")
+	g.P("defer close(errin)")
+	g.P("loop:")
+	g.P("for {")
+	g.P("select {")
+	g.P("case p, o := <-in:")
+	g.P("if o {")
+	g.P("d, e := proto.Marshal(p)")
+	g.P("if e != nil {")
+	g.P("errin <- e")
+	g.P("break loop")
+	g.P("} else {")
+	g.P("bytesin <- &d")
 	g.P("}")
-	g.P()
-	g.P("func (p *Flux", typ, ") Raw() ", rxPkg, ".Flux {")
-	g.P("return p.f")
+	g.P("} else {")
+	g.P("break loop")
 	g.P("}")
-	g.P()
-	g.P("func (p *Flux", typ, ") DoOnError(fn func(", contextPkg, ".Context, error)) *Flux", typ, " {")
-	g.P("p.f.DoOnError(fn)")
-	g.P("return p")
+	g.P("case e := <-err:")
+	g.P("if e != nil {")
+	g.P("errin <- e")
 	g.P("}")
-	g.P()
-	g.P("func (p *Flux", typ, ") DoOnNext(fn func(", contextPkg, ".Context, ", rxPkg, ".Subscription, *", typ, ")) *Flux", typ, " {")
-	g.P("p.f.DoOnNext(func(ctx ", contextPkg, ".Context, s ", rxPkg, ".Subscription, elem ", payloadPkg, ".Payload) {")
-	g.P("o := new(", typ, ")")
-	g.P("if err := proto.Unmarshal(elem.Data(), o); err != nil {")
-	g.P("panic(err)")
 	g.P("}")
-	g.P("fn(ctx, s, o)")
+	g.P("}")
 	g.P("})")
-	g.P("return p")
+	g.P("payloads, chanerrors := c.client.InvokeChannel(ctx, ", service.GetName(), "ServiceName, ", method.GetName(), "FunctionName, bytesin, errin, opts...)")
+	g.P("payloadsout := make(chan *", cleanupType(method.GetOutputType()), ", len(payloads))")
+	g.P("errout := make(chan error)")
+	g.P("scheduler.Parallel().Worker().Do(func() {")
+	g.P("defer func() {")
+	g.P("close(payloadsout)")
+	g.P("close(errout)")
+	g.P("}()")
+	g.P("loop:")
+	g.P("for {")
+	g.P("select {")
+	g.P("case p, ok := <-payloads:")
+	g.P("if ok {")
+	g.P("i := payload.Payload(p)")
+	g.P("data := i.Data()")
+	g.P("res := &", cleanupType(method.GetOutputType()), "{}")
+	g.P("e := proto.Unmarshal(data, res)")
+	g.P("if e != nil {")
+	g.P("err <- e")
+	g.P("break loop")
+	g.P("} else {")
+	g.P("payloadsout <- res")
 	g.P("}")
-	g.P()
-	g.P("func (p *Flux", typ, ") SubscribeOn(s ", rxPkg, ".Scheduler) *Flux", typ, " {")
-	g.P("p.f.SubscribeOn(s)")
-	g.P("return p")
+	g.P("} else {")
+	g.P("break loop")
 	g.P("}")
-	g.P()
-	g.P("func (p *Flux", typ, ") Subscribe(ctx ", contextPkg, ".Context) {")
-	g.P("p.f.Subscribe(ctx)")
-	g.P("}")
-	g.P()
-	g.P("type Sink", typ, " interface {")
-	g.P("Next(*", typ, ")")
-	g.P("Error(error)")
-	g.P("Complete()")
-	g.P("}")
-	g.P()
-	g.P("type _Sink_", typ, " struct {")
-	g.P("d ", rxPkg, ".Producer")
-	g.P("n int32")
-	g.P("}")
-	g.P()
-	g.P("func (p *_Sink_", typ, ") Error(err error) {")
-	g.P("p.d.Error(err)")
-	g.P("}")
-	g.P()
-	g.P("func (p *_Sink_", typ, ") Complete() {")
-	g.P("p.d.Complete()")
-	g.P("}")
-	g.P()
-	g.P("func (p *_Sink_", typ, ") Next(v *", typ, ") {")
-	g.P("raw,err := proto.Marshal(v)")
+	g.P("case e := <-chanerrors:")
 	g.P("if err != nil {")
-	g.P("panic(err)")
+	g.P("err <- e")
+	g.P("break loop")
 	g.P("}")
-	g.P("if ", atomicPkg, ".AddInt32(&(p.n), 1) == 1 {")
-	g.P("p.d.Next(", payloadPkg, ".New(raw, nil))")
+	g.P("}")
+	g.P("}")
+	g.P("})")
+	g.P("return payloadsout, errout")
+	g.P("}")
+	g.P()
+}
+
+func (g *rrpc) generateClientFireAndForgetFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
+	// Todo - implement fire and forget
+}
+
+func (g *rrpc) generateClientConstruct(service *descriptor.ServiceDescriptorProto) {
+	g.P("func New", service.GetName(), "Client(s rsocket_go.RSocket, m rsocket_rpc_go.MeterRegistry, t rsocket_rpc_go.Tracer) ", service.GetName(), "Client {")
+	g.P("cc := *rsocket_rpc_go.NewClientConn(s, m, t)")
+	g.P("return &", service.GetName(), "ClientStruct{client: cc}")
+	g.P("}")
+	g.P()
+}
+
+func (g *rrpc) generateServerInterface(service *descriptor.ServiceDescriptorProto) {
+	g.P("type ", service.GetName(), " interface {")
+	for _, method := range service.GetMethod() {
+		var method = method
+		if method.GetClientStreaming() {
+			g.P(strings.Title(method.GetName()), "(context.Context, chan *", cleanupType(method.GetInputType()), ", chan error, []byte) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error)")
+		} else {
+			g.P(strings.Title(method.GetName()), "(context.Context, *", cleanupType(method.GetInputType()), ", []byte) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error)")
+		}
+	}
+	g.P("}")
+	g.P()
+	g.P("type ", service.GetName(), "Server struct {")
+	g.P("pp ", service.GetName())
+	g.P("rsocket_rpc_go.RrpcRSocket")
+	g.P("}")
+	g.P()
+	g.P("func (p *", service.GetName(), "Server) Name() string {")
+	g.P("return ", service.GetName(), "ServiceName")
+	g.P("}")
+}
+
+func (g *rrpc) generateServerRequestResponse(service *descriptor.ServiceDescriptorProto) {
+	g.P("func (p *", service.GetName(), "Server) RequestResponse(msg payload.Payload) mono.Mono {")
+
+	var found = false
+	for _, method := range service.GetMethod() {
+		if method.GetClientStreaming() || method.GetServerStreaming() {
+			continue
+		} else {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		g.P("panic(\"request response not implemented\")")
+		g.P("}")
+		return
+	}
+
+	g.P("return mono.Create(func(ctx context.Context, sink mono.Sink) {")
+	g.P("d := msg.Data()")
+	g.P("m, ok := msg.Metadata()")
+	g.P("if !ok {")
+	g.P("sink.Error(errors.New(\"RSocket rpc: missing metadata in Payload for ", service.GetName(), " service\"))")
 	g.P("return")
 	g.P("}")
-	g.P("p.d.Next(", payloadPkg, ".New(raw, nil))")
-	g.P("}")
-	g.P()
+	g.P("metadata := (rsocket_rpc_go.Metadata)(m)")
+	g.P("method := metadata.Method()")
+	g.P("ud := metadata.Metadata()")
+	g.P("switch method {")
+	for i, method := range service.GetMethod() {
+		if method.GetClientStreaming() || method.GetServerStreaming() {
+			continue
+		}
 
-	g.P("func NewFlux", typ, "(g func(", contextPkg, ".Context, Sink", typ, ")) *Flux", typ, " {")
-	g.P("f := ", rxPkg, ".NewFlux(func(ctx ", contextPkg, ".Context, producer ", rxPkg, ".Producer) {")
-	g.P("pd := &_Sink_", typ, "{")
-	g.P("d: producer,")
+		var method = method
+		var in = "_in" + strconv.Itoa(i)
+		var out = "_out" + strconv.Itoa(i)
+
+		g.P("case ", method.GetName(), "FunctionName:")
+		g.P(in, " := &", cleanupType(method.GetInputType()), "{}")
+		g.P("e := proto.Unmarshal(d, ", in, ")")
+		g.P("if e != nil {")
+		g.P("sink.Error(e)")
+		g.P("return")
+		g.P("}")
+		g.P("defer func() {")
+		g.P("if err := recover(); err != nil {")
+		g.P("sink.Error(fmt.Errorf(\"Error calling %s function: %s\", ", method.GetName(), "FunctionName, err))")
+		g.P("}")
+		g.P("}()")
+		g.P(out, ", err := p.pp.", strings.Title(method.GetName()), "(ctx, ", in, ", ud)")
+		g.P("select {")
+		g.P("case <-ctx.Done():")
+		g.P("case r, ok := <-", out, ":")
+		g.P("if ok {")
+		g.P("bytes, e := proto.Marshal(r)")
+		g.P("if e != nil {")
+		g.P("sink.Error(e)")
+		g.P("} else {")
+		g.P("sink.Success(payload.New(bytes, nil))")
+		g.P("}")
+		g.P("}")
+		g.P("case e := <-err:")
+		g.P("sink.Error(e)")
+		g.P("}")
+	}
 	g.P("}")
-	g.P("g(ctx, pd)")
 	g.P("})")
-	g.P("return &Flux", typ, "{f}")
+	g.P("}")
+}
+
+func (g *rrpc) generateServerRequestStream(service *descriptor.ServiceDescriptorProto) {
+	g.P("func (p *", service.GetName(), "Server) RequestStream(msg payload.Payload) flux.Flux {")
+
+	var found = false
+	for _, method := range service.GetMethod() {
+		if method.GetClientStreaming() || !method.GetServerStreaming() {
+			continue
+		} else {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		g.P("panic(\"request stream not implemented\")")
+		g.P("}")
+		return
+	}
+
+	g.P("d := msg.Data()")
+	g.P("m, ok := msg.Metadata()")
+	g.P("if !ok {")
+	g.P("return flux.Error(errors.New(\"RSocket rpc: missing metadata in Payload for ", service.GetName(), " service\"))")
 	g.P("}")
 	g.P()
-}
+	g.P("metadata := (rsocket_rpc_go.Metadata)(m)")
+	g.P("method := metadata.Method()")
+	g.P()
+	g.P("ud := metadata.Metadata()")
+	g.P("switch method {")
+	for i, method := range service.GetMethod() {
+		if method.GetClientStreaming() || !method.GetServerStreaming() {
+			continue
+		}
+		var method = method
+		var in = "_in" + strconv.Itoa(i)
+		var out = "_out" + strconv.Itoa(i)
 
-func (g *rrpc) generateServerSignature(servName string, method *pb.MethodDescriptorProto) string {
-	origMethName := method.GetName()
-	methName := generator.CamelCase(origMethName)
-
-	// RequestResponse
-	if !method.GetClientStreaming() && !method.GetServerStreaming() {
-		var reqArgs []string
-		reqArgs = append(reqArgs, contextPkg+".Context")
-		ret := "(*" + g.typeName(method.GetOutputType()) + ", error)"
-		reqArgs = append(reqArgs, "*"+g.typeName(method.GetInputType()))
-		reqArgs = append(reqArgs, rrpcPkg+".Metadata")
-		return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
-	}
-	// RequestStream
-	if !method.GetClientStreaming() {
-		var reqArgs []string
-		reqArgs = append(reqArgs, contextPkg+".Context")
-		ret := "*" + g.fluxName(method.GetOutputType())
-		reqArgs = append(reqArgs, "*"+g.typeName(method.GetInputType()))
-		reqArgs = append(reqArgs, rrpcPkg+".Metadata")
-		return methName + "(" + strings.Join(reqArgs, ", ") + ") " + ret
-	}
-	// RequestChannel
-	// TODO: support channel
-	panic("todo: bi-stream")
-}
-
-func (g *rrpc) generateClientMethod(servName, fullServName, serviceDescVar string, method *pb.MethodDescriptorProto) {
-	methodName := method.GetName()
-	outType := g.typeName(method.GetOutputType())
-	g.P("func (c *", unexport(servName), "Client) ", g.generateClientSignature(servName, method), " {")
-	if !method.GetServerStreaming() && !method.GetClientStreaming() {
-		g.P("out := new(", outType, ")")
-		g.P(`err := c.cc.Invoke(ctx, "`, fullServName, `", "`, methodName, `", in, out, opts...)`)
-		g.P("if err != nil { return nil, err }")
-		g.P("return out, nil")
+		g.P("case ", method.GetName(), "FunctionName:")
+		g.P(in, " := &", cleanupType(method.GetInputType()), "{}")
+		g.P("e := proto.Unmarshal(d, ", in, ")")
+		g.P("if e != nil {")
+		g.P("return flux.Error(e)")
 		g.P("}")
 		g.P()
+		g.P("ctx := context.Background()")
+		g.P(out, ", errors := p.pp.", strings.Title(method.GetName()), "(ctx, ", in, ", ud)")
+		g.P("payloads := make(chan payload.Payload)")
+		g.P("chanerrors := make(chan error)")
+		g.P("scheduler.Parallel().Worker().Do(func() {")
+		g.P("defer func() {")
+		g.P("close(payloads)")
+		g.P("close(chanerrors)")
+		g.P("}()")
+		g.P("loop:")
+		g.P("for {")
+		g.P("select {")
+		g.P("case <-ctx.Done():")
+		g.P("case r, ok := <-", out, ":")
+		g.P("if ok {")
+		g.P("bytes, e := proto.Marshal(r)")
+		g.P("p := payload.New(bytes, nil)")
+		g.P("payloads <- p")
+		g.P("if e != nil {")
+		g.P("chanerrors <- e")
+		g.P("break loop")
+		g.P("}")
+		g.P("} else {")
+		g.P("break loop")
+		g.P("}")
+		g.P("case e := <-errors:")
+		g.P("chanerrors <- e")
+		g.P("break loop")
+		g.P("}")
+		g.P("}")
+		g.P("})")
+		g.P("return flux.CreateFromChannel(payloads, chanerrors)")
+	}
+	g.P("default:")
+	g.P("return flux.Error(fmt.Errorf(\"unknown method %s\", method))")
+	g.P("}")
+	g.P("}")
+}
+
+func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescriptorProto) {
+	g.P("func (p *", service.GetName(), "Server) RequestChannel(msgs rx.Publisher) flux.Flux {")
+
+	var found = false
+	for _, method := range service.GetMethod() {
+		if method.GetClientStreaming() && !method.GetServerStreaming() {
+			continue
+		} else {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		g.P("panic(\"request channel not implemented\")")
+		g.P("}")
 		return
 	}
-	// RequestStream
-	if !method.GetClientStreaming() {
-		fluxOut := g.fluxName(method.GetOutputType())
-		g.P("dec := func(f ", rxPkg, ".Flux) interface{} {")
-		g.P("return &", fluxOut, "{f}")
-		g.P("}")
-		g.P(`out := c.cc.InvokeStream(ctx, "`, fullServName, `", "`, methodName, `", in, dec, opts...)`)
-		g.P("return out.(*", fluxOut, ")")
+
+	g.P("return flux.Clone(msgs).SwitchOnFirst(func(s flux.Signal, f flux.Flux) flux.Flux {")
+	g.P("msg, ok := s.Value()")
+	g.P("if !ok {")
+	g.P("return flux.Error(errors.New(\"RSocket rpc: missing payload to switch request on\"))")
+	g.P("}")
+	g.P("d := msg.Data()")
+	g.P("m, ok := msg.Metadata()")
+	g.P("if !ok {")
+	g.P("return flux.Error(errors.New(\"RSocket rpc: missing metadata in Payload for PingPong service\"))")
+	g.P("}")
+	g.P("metadata := (rsocket_rpc_go.Metadata)(m)")
+	g.P("method := metadata.Method()")
+	g.P("ud := metadata.Metadata()")
+	g.P("switch method {")
+	for i, method := range service.GetMethod() {
+		if !method.GetClientStreaming() {
+			continue
+		}
+
+		var method = method
+		var in = "_in" + strconv.Itoa(i)
+		//var out = "_out" + strconv.Itoa(i)
+
+		g.P("case ", method.GetName(), "FunctionName:")
+		g.P(in, " := &", cleanupType(method.GetInputType()), "{}")
+		g.P("e := proto.Unmarshal(d, ", in, ")")
+		g.P("if e != nil {")
+		g.P("return flux.Error(e)")
 		g.P("}")
 		g.P()
-		return
-	}
-	// TODO: support channel
-	panic("todo: bi-stream")
-}
-
-func (g *rrpc) generateClientSignature(servName string, method *pb.MethodDescriptorProto) string {
-	origMethName := method.GetName()
-	methName := generator.CamelCase(origMethName)
-	// RequestResponse
-	if !method.GetClientStreaming() && !method.GetServerStreaming() {
-		reqArg := ", in *" + g.typeName(method.GetInputType())
-		respName := "(*" + g.typeName(method.GetOutputType()) + ", error)"
-		return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) %s", methName, contextPkg, reqArg, rrpcPkg, respName)
-	}
-	// RequestStream
-	if !method.GetClientStreaming() {
-		fluxNames = append(fluxNames, method.GetOutputType())
-		reqArg := ", in *" + g.typeName(method.GetInputType())
-		return fmt.Sprintf("%s(ctx %s.Context%s, opts ...%s.CallOption) *%s", methName, contextPkg, reqArg, rrpcPkg, g.fluxName(method.GetOutputType()))
-	}
-	// RequestChannel
-	// TODO: support channel
-	panic("todo: bi-stream ")
-}
-
-// Given a type name defined in a .proto, return its name as we will print it.
-func (g *rrpc) typeName(str string) string {
-	return g.gen.TypeName(g.objectNamed(str))
-}
-
-func (g *rrpc) objectNamed(name string) generator.Object {
-	g.gen.RecordTypeUse(name)
-	return g.gen.ObjectNamed(name)
-}
-
-func (g *rrpc) generateServerMethod(servName, fullServName string, method *pb.MethodDescriptorProto) string {
-	methName := generator.CamelCase(method.GetName())
-	if !method.GetClientStreaming() && !method.GetServerStreaming() {
-		hname := fmt.Sprintf("_%s_%s_Handler", servName, methName)
-		inType := g.typeName(method.GetInputType())
-		g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error, md ", rrpcPkg, ".Metadata) (interface{}, error) {")
-		g.P("in := new(", inType, ")")
-		g.P("err := dec(in)")
+		g.P("ctx := context.Background()")
+		g.P("inchan := make(chan *", cleanupType(method.GetInputType()), ")")
+		g.P("inerr := make(chan error)")
+		g.P("var sub rx.Subscription")
+		g.P("f.DoOnSubscribe(func(s rx.Subscription) {")
+		g.P("sub = s")
+		g.P("}).SubscribeOn(scheduler.Parallel()).")
+		g.P("DoOnNext(func(input payload.Payload) {")
+		g.P("_in5 := &Ping{}")
+		g.P("e := proto.Unmarshal(d, _in5)")
+		g.P("if e != nil {")
+		g.P("inerr <- e")
+		g.P("if sub != nil {")
+		g.P("sub.Cancel()")
+		g.P("}")
+		g.P("} else {")
+		g.P("inchan <- _in5")
+		g.P("}")
+		g.P("}).")
+		g.P("DoOnError(func(e error) {")
+		g.P("inerr <- e")
+		g.P("}).")
+		g.P("DoFinally(func(s rx.SignalType) {")
+		g.P("close(inchan)")
+		g.P("close(inerr)")
+		g.P("}).Subscribe(ctx)")
+		g.P()
+		g.P("outchan, outerr := p.pp.", strings.Title(method.GetName()), "(ctx, inchan, inerr, ud)")
+		g.P("return flux.Create(func(ctx context.Context, sink flux.Sink) {")
+		g.P("loop:")
+		g.P("for {")
+		g.P("select {")
+		g.P("case i, o := <-outchan:")
+		g.P("if o {")
+		g.P("bytes, e := proto.Marshal(i)")
+		g.P("if e != nil {")
+		g.P("sink.Error(e)")
+		g.P("break loop")
+		g.P("}")
+		g.P("p := payload.New(bytes, nil)")
+		g.P("sink.Next(p)")
+		g.P("} else {")
+		g.P("break loop")
+		g.P("}")
+		g.P("case err := <-outerr:")
 		g.P("if err != nil {")
-		g.P("return nil, err")
+		g.P("sink.Error(err)")
 		g.P("}")
-		g.P("return srv.(", servName, "Server).", methName, "(ctx, in, md)")
 		g.P("}")
-		return hname
+		g.P("}")
+		g.P("})")
 	}
-	// RequestStream
-	if !method.GetClientStreaming() {
-		hname := fmt.Sprintf("_%s_%s_Handler", servName, methName)
-		inType := g.typeName(method.GetInputType())
-		g.P("func ", hname, "(ctx ", contextPkg, ".Context, srv interface{}, dec func(interface{}) error, md ", rrpcPkg, ".Metadata) (interface{}, error) {")
-		g.P("in := new(", inType, ")")
-		g.P("err := dec(in)")
-		g.P("if err != nil {")
-		g.P("return nil, err")
-		g.P("}")
-		g.P("return srv.(", servName, "Server).", methName, "(ctx, in, md), nil")
-		g.P("}")
-		return hname
-	}
-	panic("todo: bi stream")
+
+	g.P("default:")
+	g.P("return flux.Error(fmt.Errorf(\"unknown method %s\", method))")
+	g.P("}")
+	g.P("})")
+	g.P("}")
+}
+
+func (g *rrpc) generateServerFireAndForget(service *descriptor.ServiceDescriptorProto) {
+
+}
+
+func (g *rrpc) generateServerConstructor(service *descriptor.ServiceDescriptorProto) {
+	g.P("func New", service.GetName(), "Server(p ", service.GetName(), ") *", service.GetName(), "Server {")
+	g.P("return &", service.GetName(), "Server{")
+	g.P("pp: p,")
+	g.P("}")
+	g.P("}")
+
 }
 
 func (g *rrpc) GenerateImports(file *generator.FileDescriptor) {

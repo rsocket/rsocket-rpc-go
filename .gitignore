@@ -22,3 +22,5 @@ suppressions/
 
 *.pb.go
 /protoc-gen-go/protoc-gen-go
+
+.idea

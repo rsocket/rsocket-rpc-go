@@ -2,22 +2,19 @@ package rrpc
 
 import (
 	"context"
-
-	"github.com/rsocket/rsocket-go/rx"
+	"github.com/golang/protobuf/proto"
+	"github.com/rsocket/rsocket-go/payload"
 )
 
-type rawFlux interface {
-	Raw() rx.Flux
-}
-
-type methodHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error, m Metadata) (interface{}, error)
-type streamHandler func(ctx context.Context, srv interface{}, dec func(interface{}) error, m Metadata) (interface{}, error)
+type methodHandler func(ctx context.Context,
+	handler interface{},
+	deserialize func(payload payload.Payload) (proto.Message, error),
+	metadata Metadata) (<-chan *proto.Message, <-chan error)
 
 type ServiceDesc struct {
 	Name        string
 	HandlerType interface{}
 	Methods     []MethodDesc
-	Streams     []StreamDesc
 
 	Metadata interface{}
 }
@@ -25,9 +22,4 @@ type ServiceDesc struct {
 type MethodDesc struct {
 	Name    string
 	Handler methodHandler
-}
-
-type StreamDesc struct {
-	Name    string
-	Handler streamHandler
 }

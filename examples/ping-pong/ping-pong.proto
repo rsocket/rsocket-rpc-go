@@ -6,6 +6,7 @@ option java_package = "com.example.rrpc.pb";
 
 message Ping {
     string ball = 1;
+    string anotherBall = 2;
 }
 
 message Pong {
@@ -13,12 +14,12 @@ message Pong {
 }
 
 service PingPong {
-    rpc ping (Ping) returns (Pong) {
-    }
-    rpc lotsOfPongs (Ping) returns (stream Pong) {
-    }
+    rpc ping (Ping) returns (Pong) {}
+    rpc ping2 (Ping) returns (Pong) {}
 
-    //    rpc rousingGameOfPingPong (stream Ping) returns (stream Pong) {
-    //    }
+    rpc lotsOfPongs (Ping) returns (stream Pong) {}
+    rpc lotsOfPongs2 (Ping) returns (stream Pong) {}
+
+    rpc rousingGameOfPingPong (stream Ping) returns (stream Pong) {}
 
 }
