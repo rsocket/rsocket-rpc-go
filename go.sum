@@ -287,6 +287,8 @@ github.com/rogpeppe/go-internal v1.1.0/go.mod h1:M8bDsm7K2OlrFYOpmOWEs/qY81heoFR
 github.com/rogpeppe/go-internal v1.3.0/go.mod h1:M8bDsm7K2OlrFYOpmOWEs/qY81heoFRclV5y23lUDJ4=
 github.com/rsocket/rsocket-go v0.2.1 h1:pNzFGSqNaR/zQ/mM8Ic646VnM7Udlm+exjdsS1VkGnk=
 github.com/rsocket/rsocket-go v0.2.1/go.mod h1:zeZ1kGaLPyJ/fvKscbqRXnsx+SMI6kxdO2ukOyFV1HM=
+github.com/rsocket/rsocket-go v0.3.2 h1:h+pvdUoxVbyPDtb+W4D5ZXbD4+CZWLILHUsx4pt9BXM=
+github.com/rsocket/rsocket-go v0.3.2/go.mod h1:xK4AisApMxdBM9TraB+1e2yr2v9ED0Ka4zprRKl957Y=
 github.com/russross/blackfriday v1.5.2/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
 github.com/russross/blackfriday v2.0.0+incompatible/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
 github.com/ryanuber/go-glob v0.0.0-20170128012129-256dc444b735/go.mod h1:807d1WSdnB0XRJzKNil9Om6lcp/3a0v4qIHxIXzX/Yc=
