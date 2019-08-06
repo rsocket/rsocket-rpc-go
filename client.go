@@ -9,12 +9,14 @@ import (
 	"github.com/rsocket/rsocket-go/rx/mono"
 )
 
+// ClientConn struct
 type ClientConn struct {
 	rSocket       rsocket.RSocket
 	meterRegistry MeterRegistry
 	tracer        Tracer
 }
 
+// InvokeRequestResponse invoke request response
 func (p *ClientConn) InvokeRequestResponse(
 	ctx context.Context,
 	srv string,
@@ -43,6 +45,7 @@ func (p *ClientConn) InvokeRequestResponse(
 	return mono.ToChannel(m, ctx)
 }
 
+// InvokeRequestStream invoke request stream
 func (p *ClientConn) InvokeRequestStream(
 	ctx context.Context,
 	srv string,
@@ -69,6 +72,7 @@ func (p *ClientConn) InvokeRequestStream(
 	return flux.ToChannel(p.rSocket.RequestStream(sent), ctx)
 }
 
+// NewClientConn creates new client
 func NewClientConn(c rsocket.RSocket, m MeterRegistry, t Tracer) *ClientConn {
 	return &ClientConn{
 		rSocket:       c,
