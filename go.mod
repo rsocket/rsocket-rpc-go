@@ -14,5 +14,3 @@ require (
 )
 
 replace github.com/rsocket/rsocket-go => ../rsocket-go
-
-replace github.com/panjf2000/ants => ../ants
