@@ -170,7 +170,8 @@ func (g *rrpc) generateClientRequestReplyFunction(service *descriptor.ServiceDes
 	g.P("}")
 	g.P()
 	g.P("payloads, errors := c.client.InvokeRequestResponse(ctx, ", service.GetName(), "ServiceName, ", method.GetName(), "FunctionName, &d, opts...)")
-	g.P()
+	g.P("loop:")
+	g.P("for {")
 	g.P("select {")
 	g.P("case p, ok := <-payloads:")
 	g.P("if ok {")
@@ -180,12 +181,19 @@ func (g *rrpc) generateClientRequestReplyFunction(service *descriptor.ServiceDes
 	g.P("e := proto.Unmarshal(data, res)")
 	g.P("if e != nil {")
 	g.P("err <- e")
+	g.P("break loop")
 	g.P("} else {")
 	g.P("response <- res")
 	g.P("}")
+	g.P("} else {")
+	g.P("break loop")
 	g.P("}")
 	g.P("case e := <-errors:")
+	g.P("if err != nil {")
 	g.P("err <- e")
+	g.P("break loop")
+	g.P("}")
+	g.P("}")
 	g.P("}")
 	g.P()
 	g.P("return response, err")
@@ -375,9 +383,10 @@ func (g *rrpc) generateServerRequestResponse(service *descriptor.ServiceDescript
 			continue
 		}
 
-		var method = method
-		var in = "_in" + strconv.Itoa(i)
-		var out = "_out" + strconv.Itoa(i)
+		var method= method
+		var in= "_in" + strconv.Itoa(i)
+		var out= "_out" + strconv.Itoa(i)
+		var loop= "_loop" + strconv.Itoa(i)
 
 		g.P("case ", method.GetName(), "FunctionName:")
 		g.P(in, " := &", cleanupType(method.GetInputType()), "{}")
@@ -392,6 +401,8 @@ func (g *rrpc) generateServerRequestResponse(service *descriptor.ServiceDescript
 		g.P("}")
 		g.P("}()")
 		g.P(out, ", err := p.pp.", strings.Title(method.GetName()), "(ctx, ", in, ", ud)")
+		g.P(loop, ":")
+		g.P("for {")
 		g.P("select {")
 		g.P("case <-ctx.Done():")
 		g.P("case r, ok := <-", out, ":")
@@ -401,10 +412,16 @@ func (g *rrpc) generateServerRequestResponse(service *descriptor.ServiceDescript
 		g.P("sink.Error(e)")
 		g.P("} else {")
 		g.P("sink.Success(payload.New(bytes, nil))")
+		g.P("break ", loop)
 		g.P("}")
+		g.P("} else {")
+		g.P("break ", loop)
 		g.P("}")
 		g.P("case e := <-err:")
+		g.P("if e != nil {")
 		g.P("sink.Error(e)")
+		g.P("}")
+		g.P("}")
 		g.P("}")
 	}
 	g.P("}")
@@ -536,7 +553,6 @@ func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescripto
 
 		var method = method
 		var in = "_in" + strconv.Itoa(i)
-		//var out = "_out" + strconv.Itoa(i)
 
 		g.P("case ", method.GetName(), "FunctionName:")
 		g.P(in, " := &", cleanupType(method.GetInputType()), "{}")
