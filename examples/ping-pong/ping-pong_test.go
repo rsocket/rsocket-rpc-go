@@ -24,7 +24,7 @@ func TestAllInOne(t *testing.T) {
 
 	m := map[string]string{
 		"tcp": "tcp://127.0.0.1:7878",
-		"websocket": "ws://127.0.0.1:7878",
+		//"websocket": "ws://127.0.0.1:7878",
 	}
 	for k, v := range m {
 		t.Run(k, func(t *testing.T) {
