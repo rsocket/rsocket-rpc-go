@@ -100,7 +100,8 @@ func (g *rrpc) generateService(file *generator.FileDescriptor, service *descript
 	g.P()
 	g.P("type ", service.GetName(), "ClientStruct struct {")
 	g.P(service.GetName(), "Client")
-	g.P("client rsocket_rpc_go.ClientConn")
+
+	g.P("client ", rrpcPkg, ".ClientConn")
 	g.P("}")
 	g.P()
 	g.generateClientFunctions(service)
@@ -134,9 +135,9 @@ func (g *rrpc) generateClientInterface(service *descriptor.ServiceDescriptorProt
 		g.P()
 		var method = method
 		if !method.GetClientStreaming() {
-			g.P(strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(cleanupType(method.GetOutputType())), ", <-chan error)")
+			g.P(strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...", rrpcPkg, ".CallOption) (<-chan *", cleanupType(cleanupType(method.GetOutputType())), ", <-chan error)")
 		} else {
-			g.P(strings.Title(method.GetName()), "(ctx context.Context, in chan *", cleanupType(method.GetInputType()), ", err chan error, opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(cleanupType(method.GetOutputType())), ", <-chan error)")
+			g.P(strings.Title(method.GetName()), "(ctx context.Context, in chan *", cleanupType(method.GetInputType()), ", err chan error, opts ...", rrpcPkg, ".CallOption) (<-chan *", cleanupType(cleanupType(method.GetOutputType())), ", <-chan error)")
 		}
 	}
 	g.P("}")
@@ -157,7 +158,7 @@ func (g *rrpc) generateClientFunctions(service *descriptor.ServiceDescriptorProt
 }
 
 func (g *rrpc) generateClientRequestReplyFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
-	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
+	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...", rrpcPkg, ".CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
 	g.P("response := make(chan *", cleanupType(method.GetOutputType()), ", 1)")
 	g.P("err := make(chan error, 1)")
 	g.P("defer func() {")
@@ -202,7 +203,7 @@ func (g *rrpc) generateClientRequestReplyFunction(service *descriptor.ServiceDes
 }
 
 func (g *rrpc) generateClientRequestStreamFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
-	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
+	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in *", cleanupType(method.GetInputType()), ", opts ...", rrpcPkg, ".CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
 	g.P("err := make(chan error)")
 	g.P("d, e := proto.Marshal(in)")
 	g.P("if e != nil {")
@@ -247,7 +248,7 @@ func (g *rrpc) generateClientRequestStreamFunction(service *descriptor.ServiceDe
 }
 
 func (g *rrpc) generateClientRequestChannelFunction(service *descriptor.ServiceDescriptorProto, method *descriptor.MethodDescriptorProto) {
-	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in chan *", cleanupType(method.GetInputType()), ", err chan error", ", opts ...rsocket_rpc_go.CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
+	g.P("func (c *", service.GetName(), "ClientStruct) ", strings.Title(method.GetName()), "(ctx context.Context, in chan *", cleanupType(method.GetInputType()), ", err chan error", ", opts ...", rrpcPkg, ".CallOption) (<-chan *", cleanupType(method.GetOutputType()), ", <-chan error) {")
 	g.P("bytesin := make(chan []byte)")
 	g.P("errin := make(chan error)")
 	g.P("scheduler.Elastic().Worker().Do(func() {")
@@ -319,8 +320,8 @@ func (g *rrpc) generateClientFireAndForgetFunction(service *descriptor.ServiceDe
 }
 
 func (g *rrpc) generateClientConstruct(service *descriptor.ServiceDescriptorProto) {
-	g.P("func New", service.GetName(), "Client(s rsocket_go.RSocket, m rsocket_rpc_go.MeterRegistry, t rsocket_rpc_go.Tracer) ", service.GetName(), "Client {")
-	g.P("cc := *rsocket_rpc_go.NewClientConn(s, m, t)")
+	g.P("func New", service.GetName(), "Client(s rsocket_go.RSocket, m ", rrpcPkg, ".MeterRegistry, t ", rrpcPkg, ".Tracer) ", service.GetName(), "Client {")
+	g.P("cc := *", rrpcPkg, ".NewClientConn(s, m, t)")
 	g.P("return &", service.GetName(), "ClientStruct{client: cc}")
 	g.P("}")
 	g.P()
@@ -340,7 +341,7 @@ func (g *rrpc) generateServerInterface(service *descriptor.ServiceDescriptorProt
 	g.P()
 	g.P("type ", service.GetName(), "Server struct {")
 	g.P("pp ", service.GetName())
-	g.P("rsocket_rpc_go.RrpcRSocket")
+	g.P(rrpcPkg, ".RrpcRSocket")
 	g.P("}")
 	g.P()
 	g.P("func (p *", service.GetName(), "Server) Name() string {")
@@ -374,7 +375,7 @@ func (g *rrpc) generateServerRequestResponse(service *descriptor.ServiceDescript
 	g.P("sink.Error(errors.New(\"RSocket rpc: missing metadata in Payload for ", service.GetName(), " service\"))")
 	g.P("return")
 	g.P("}")
-	g.P("metadata := (rsocket_rpc_go.Metadata)(m)")
+	g.P("metadata := (", rrpcPkg, ".Metadata)(m)")
 	g.P("method := metadata.Method()")
 	g.P("ud := metadata.Metadata()")
 	g.P("switch method {")
@@ -383,10 +384,10 @@ func (g *rrpc) generateServerRequestResponse(service *descriptor.ServiceDescript
 			continue
 		}
 
-		var method= method
-		var in= "_in" + strconv.Itoa(i)
-		var out= "_out" + strconv.Itoa(i)
-		var loop= "_loop" + strconv.Itoa(i)
+		var method = method
+		var in = "_in" + strconv.Itoa(i)
+		var out = "_out" + strconv.Itoa(i)
+		var loop = "_loop" + strconv.Itoa(i)
 
 		g.P("case ", method.GetName(), "FunctionName:")
 		g.P(in, " := &", cleanupType(method.GetInputType()), "{}")
@@ -454,7 +455,7 @@ func (g *rrpc) generateServerRequestStream(service *descriptor.ServiceDescriptor
 	g.P("return flux.Error(errors.New(\"RSocket rpc: missing metadata in Payload for ", service.GetName(), " service\"))")
 	g.P("}")
 	g.P()
-	g.P("metadata := (rsocket_rpc_go.Metadata)(m)")
+	g.P("metadata := (", rrpcPkg, ".Metadata)(m)")
 	g.P("method := metadata.Method()")
 	g.P()
 	g.P("ud := metadata.Metadata()")
@@ -542,7 +543,7 @@ func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescripto
 	g.P("if !ok {")
 	g.P("return flux.Error(errors.New(\"RSocket rpc: missing metadata in Payload for PingPong service\"))")
 	g.P("}")
-	g.P("metadata := (rsocket_rpc_go.Metadata)(m)")
+	g.P("metadata := (", rrpcPkg, ".Metadata)(m)")
 	g.P("method := metadata.Method()")
 	g.P("ud := metadata.Metadata()")
 	g.P("switch method {")
