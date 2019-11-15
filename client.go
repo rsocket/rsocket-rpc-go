@@ -113,7 +113,7 @@ func (p *ClientConn) InvokeChannel(
 
 	inchan := make(chan payload.Payload)
 	inerr := make(chan error)
-	scheduler.Parallel().Worker().Do(func() {
+	scheduler.Elastic().Worker().Do(func() {
 		defer close(inchan)
 		defer close(inerr)
 	loop:
