@@ -3,16 +3,17 @@ package ping_pong_test
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/payload"
 	rrpc "github.com/rsocket/rsocket-rpc-go"
 	ping_pong "github.com/rsocket/rsocket-rpc-go/examples/ping-pong"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"log"
-	"strings"
-	"testing"
-	"time"
 )
 
 func TestAllInOne(t *testing.T) {
@@ -81,8 +82,8 @@ func doTest(addr string, t *testing.T) {
 		err := rsocket.
 			Receive().
 			Acceptor(
-				func(setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) rsocket.RSocket {
-					return pingPongServer
+				func(setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) (rsocket.RSocket, error) {
+					return pingPongServer, nil
 				}).
 			Transport(addr).Serve(ctx)
 		if err != nil {

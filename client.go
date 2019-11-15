@@ -2,11 +2,11 @@ package rrpc
 
 import (
 	"context"
+
 	"github.com/jjeffcaii/reactor-go/scheduler"
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/payload"
 	"github.com/rsocket/rsocket-go/rx/flux"
-	"github.com/rsocket/rsocket-go/rx/mono"
 )
 
 // ClientConn struct
@@ -21,7 +21,7 @@ func (p *ClientConn) InvokeRequestResponse(
 	ctx context.Context,
 	srv string,
 	method string,
-	data *[]byte,
+	data []byte,
 	opts ...CallOption,
 ) (<-chan payload.Payload, <-chan error) {
 	o := &callOption{}
@@ -31,18 +31,14 @@ func (p *ClientConn) InvokeRequestResponse(
 			opt(o)
 		}
 	}
-
-	sent, e := NewRequestPayload(srv, method, *data, o.tracing, o.metadata)
+	sent, e := NewRequestPayload(srv, method, data, o.tracing, o.metadata)
 	if e != nil {
 		err := make(chan error, 1)
 		err <- e
 		close(err)
 		return nil, err
 	}
-
-	m := p.rSocket.RequestResponse(sent)
-
-	return mono.ToChannel(m, ctx)
+	return p.rSocket.RequestResponse(sent).ToChan(ctx)
 }
 
 // InvokeRequestStream invoke request stream
@@ -50,7 +46,7 @@ func (p *ClientConn) InvokeRequestStream(
 	ctx context.Context,
 	srv string,
 	method string,
-	data *[]byte,
+	data []byte,
 	opts ...CallOption,
 ) (<-chan payload.Payload, <-chan error) {
 	o := &callOption{}
@@ -61,15 +57,14 @@ func (p *ClientConn) InvokeRequestStream(
 		}
 	}
 
-	sent, e := NewRequestPayload(srv, method, *data, o.tracing, o.metadata)
+	sent, e := NewRequestPayload(srv, method, data, o.tracing, o.metadata)
 	if e != nil {
 		err := make(chan error, 1)
 		err <- e
 		close(err)
 		return nil, err
 	}
-
-	return flux.ToChannel(p.rSocket.RequestStream(sent), ctx)
+	return p.rSocket.RequestStream(sent).ToChan(ctx, 0)
 }
 
 // NewClientConn creates new client
@@ -104,7 +99,7 @@ func (p *ClientConn) InvokeChannel(
 	ctx context.Context,
 	srv string,
 	method string,
-	datachan chan *[]byte,
+	datachan chan []byte,
 	err chan error,
 	opts ...CallOption) (<-chan payload.Payload, <-chan error) {
 
@@ -126,7 +121,7 @@ func (p *ClientConn) InvokeChannel(
 			select {
 			case data, ok := <-datachan:
 				if ok {
-					sent, e := NewRequestPayload(srv, method, *data, o.tracing, o.metadata)
+					sent, e := NewRequestPayload(srv, method, data, o.tracing, o.metadata)
 					if e != nil {
 						inerr <- e
 					} else {
@@ -144,8 +139,6 @@ func (p *ClientConn) InvokeChannel(
 	})
 
 	influx := flux.CreateFromChannel(inchan, inerr)
-
 	outflux := p.rSocket.RequestChannel(influx)
-
-	return flux.ToChannel(outflux, ctx)
+	return outflux.ToChan(ctx, 0)
 }
