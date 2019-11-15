@@ -13,6 +13,8 @@ const (
 	contextPkgPath = "context"
 	rrpcPkgPath    = "github.com/rsocket/rsocket-rpc-go"
 	rsocketPkgPath = "github.com/rsocket/rsocket-go"
+	rawMonoPkgPath = "github.com/jjeffcaii/reactor-go/mono"
+	rawFluxPkgPath = "github.com/jjeffcaii/reactor-go/flux"
 	schPkgPath     = "github.com/jjeffcaii/reactor-go/scheduler"
 	rxPkgPath      = "github.com/rsocket/rsocket-go/rx"
 	fluxPkgPath    = "github.com/rsocket/rsocket-go/rx/flux"
@@ -31,9 +33,9 @@ var (
 	payloadPkg string
 	errorsPkg  string
 	schPkg     string
+	rawMonoPkg string
+	rawFluxPkg string
 )
-
-var fluxNames []string
 
 func init() {
 	generator.RegisterPlugin(new(rrpc))
@@ -71,6 +73,8 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 	payloadPkg = string(g.gen.AddImport(payloadPkgPath))
 	errorsPkg = string(g.gen.AddImport(errorsPkgPath))
 	schPkg = string(g.gen.AddImport(schPkgPath))
+	rawMonoPkg = string(g.gen.AddImport(rawMonoPkgPath))
+	rawFluxPkg = string(g.gen.AddImport(rawFluxPkgPath))
 
 	g.P("var _ ", contextPkg, ".Context")
 	g.P("var _ ", rrpcPkg, ".ClientConn")
@@ -80,6 +84,8 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 	g.P("var _ ", monoPkg, ".Mono")
 	g.P("var _ ", payloadPkg, ".Payload")
 	g.P("var _ ", schPkg, ".Scheduler")
+	g.P("var _ ", rawMonoPkg, ".Mono")
+	g.P("var _ ", rawFluxPkg, ".Flux")
 
 	for _, service := range file.FileDescriptorProto.Service {
 		g.generateService(file, service)
@@ -89,11 +95,29 @@ func (g *rrpc) Generate(file *generator.FileDescriptor) {
 func (g *rrpc) generateService(file *generator.FileDescriptor, service *descriptor.ServiceDescriptorProto) {
 	// Constants
 	g.P("// -- Constants")
-	g.P("const ", service.GetName(), "ServiceName = \"", file.GetPackage(), ".", service.GetName(), "\"")
+	monos := make(map[string]struct{}, 0)
+	fluxs := make(map[string]struct{}, 0)
+	g.P("const ", service.GetName(), `ServiceName = "`, file.GetPackage(), ".", service.GetName(), `"`)
 	for _, method := range service.GetMethod() {
-		var method = method
-		g.P("const ", method.GetName(), "FunctionName = \"", method.GetName(), "\"")
+		g.P("const ", method.GetName(), `FunctionName = "`, method.GetName(), `"`)
+		if method.GetClientStreaming() {
+			fluxs[method.GetInputType()] = struct{}{}
+		} else {
+			monos[method.GetInputType()] = struct{}{}
+		}
+		if method.GetServerStreaming() {
+			fluxs[method.GetOutputType()] = struct{}{}
+		} else {
+			monos[method.GetOutputType()] = struct{}{}
+		}
 	}
+	g.P()
+
+	g.P("// -- Mono start")
+	for it := range monos {
+		g.generateMono(it)
+	}
+
 	g.P()
 	g.P("// -- client start")
 	g.generateClientInterface(service)
@@ -121,12 +145,79 @@ func (g *rrpc) generateService(file *generator.FileDescriptor, service *descript
 	//g.generateServerFireAndForget(service)
 	g.P()
 	g.generateServerConstructor(service)
-
 }
 
 func cleanupType(t string) string {
 	index := strings.LastIndex(t, ".")
 	return t[index+1:]
+}
+
+func (g *rrpc) generateMono(inputType string) {
+	typo := cleanupType(inputType)
+	iface := "Mono" + typo
+	g.P("type ", iface, " interface {")
+	g.P("DoOnSuccess(func(*", typo, ")) ", iface)
+	g.P("DoOnError(func(error)) ", iface)
+	g.P("DoOnComplete(func()) ", iface)
+	g.P("Block(", contextPkg, ".Context) (*", typo, ",error)")
+	g.P("}")
+	g.P()
+
+	imp := "_impl" + iface
+	impNew := "new" + iface
+
+	g.P("type ", imp, " struct {")
+	g.P("origin ", rawMonoPkg, ".Mono")
+	g.P("}")
+	g.P()
+	g.P("func (p ", imp, ") DoOnComplete(callback func()) ", iface, " {")
+	g.P("return ", impNew, "(p.origin.DoOnComplete(callback), false)")
+	g.P("}")
+	g.P()
+	g.P("func (p ", imp, ") DoOnError(callback func(error)) ", iface, " {")
+	g.P("return ", impNew, "(p.origin.DoOnError(callback), false)")
+	g.P("}")
+	g.P()
+	g.P("func (p ", imp, ") DoOnSuccess(callback func(*", typo, ")) ", iface, " {")
+	g.P("return ", impNew, "(p.origin.DoOnNext(func(input interface{}) {")
+	g.P("callback(input.(*", typo, "))")
+	g.P("}), false)")
+	g.P("}")
+	g.P()
+
+	g.P("func (p ", imp, ") Block(ctx ", contextPkg, ".Context) (*", typo, ", error) {")
+	g.P("v, err := p.origin.Block(ctx)")
+	g.P("if err != nil {")
+	g.P("return nil, err")
+	g.P("}")
+	g.P("return v.(*", typo, "), nil")
+	g.P("}")
+	g.P()
+	g.P("func ", impNew, "(input ", rawMonoPkg, ".Mono, autoMap bool) ", iface, " {")
+	g.P("if autoMap {")
+	g.P("input = input.Map(func(v interface{}) interface{} {")
+	g.P("ret := new(", typo, ")")
+	g.P("pa := v.(", payloadPkg, ".Payload)")
+	g.P("if err := proto.Unmarshal(pa.Data(), ret); err != nil {")
+	g.P("panic(err)")
+	g.P("}")
+	g.P("return ret")
+	g.P("})")
+	g.P("}")
+	g.P("return ", imp, "{origin: input}")
+	g.P("}")
+	g.P()
+	g.P("func New", iface, "(input *", typo, ") ", iface, "{")
+	g.P("return ", impNew, "(", rawMonoPkg, ".Create(func(ctx ", contextPkg, ".Context, s ", rawMonoPkg, ".Sink) {")
+	g.P("bs, err := proto.Marshal(input)")
+	g.P("if err != nil {")
+	g.P("s.Error(err)")
+	g.P("} else {")
+	g.P("s.Success(", payloadPkg, ".New(bs, nil))")
+	g.P("}")
+	g.P("}), true)")
+	g.P("}")
+	g.P()
 }
 
 func (g *rrpc) generateClientInterface(service *descriptor.ServiceDescriptorProto) {
