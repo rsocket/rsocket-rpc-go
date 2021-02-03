@@ -514,7 +514,7 @@ func (g *rrpc) generateServerRequestStream(service *descriptor.ServiceDescriptor
 }
 
 func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescriptorProto) {
-	g.P("func (p *", service.GetName(), "Server) RequestChannel(msgs rx.Publisher) flux.Flux {")
+	g.P("func (p *", service.GetName(), "Server) RequestChannel(msgs flux.Flux) flux.Flux {")
 
 	var found = false
 	for _, method := range service.GetMethod() {
@@ -532,7 +532,7 @@ func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescripto
 		return
 	}
 
-	g.P("return flux.Clone(msgs).SwitchOnFirst(func(s flux.Signal, f flux.Flux) flux.Flux {")
+	g.P("return msgs.SwitchOnFirst(func(s flux.Signal, f flux.Flux) flux.Flux {")
 	g.P("msg, ok := s.Value()")
 	g.P("if !ok {")
 	g.P("return flux.Error(errors.New(\"RSocket rpc: missing payload to switch request on\"))")
@@ -565,10 +565,10 @@ func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescripto
 		g.P("inchan := make(chan *", cleanupType(method.GetInputType()), ")")
 		g.P("inerr := make(chan error)")
 		g.P("var sub rx.Subscription")
-		g.P("f.DoOnSubscribe(func(s rx.Subscription) {")
+		g.P("f.DoOnSubscribe(func(ctx context.Context, s rx.Subscription) {")
 		g.P("sub = s")
 		g.P("}).SubscribeOn(scheduler.Parallel()).")
-		g.P("DoOnNext(func(input payload.Payload) {")
+		g.P("DoOnNext(func(input payload.Payload) error {")
 		g.P("_in5 := &Ping{}")
 		g.P("e := proto.Unmarshal(d, _in5)")
 		g.P("if e != nil {")
@@ -579,6 +579,7 @@ func (g *rrpc) generateServerRequestChannel(service *descriptor.ServiceDescripto
 		g.P("} else {")
 		g.P("inchan <- _in5")
 		g.P("}")
+		g.P("return nil")
 		g.P("}).")
 		g.P("DoOnError(func(e error) {")
 		g.P("inerr <- e")

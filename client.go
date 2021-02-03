@@ -2,12 +2,25 @@ package rrpc
 
 import (
 	"context"
+
 	"github.com/jjeffcaii/reactor-go/scheduler"
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/payload"
 	"github.com/rsocket/rsocket-go/rx/flux"
-	"github.com/rsocket/rsocket-go/rx/mono"
 )
+
+type releasable interface {
+	IncRef() int32
+	RefCnt() int32
+	Release()
+}
+
+func pinPayload(input payload.Payload) error {
+	if r, ok := input.(releasable); ok {
+		r.IncRef()
+	}
+	return nil
+}
 
 // ClientConn struct
 type ClientConn struct {
@@ -40,9 +53,7 @@ func (p *ClientConn) InvokeRequestResponse(
 		return nil, err
 	}
 
-	m := p.rSocket.RequestResponse(sent)
-
-	return mono.ToChannel(m, ctx)
+	return p.rSocket.RequestResponse(sent).DoOnSuccess(pinPayload).ToChan(ctx)
 }
 
 // InvokeRequestStream invoke request stream
@@ -69,7 +80,7 @@ func (p *ClientConn) InvokeRequestStream(
 		return nil, err
 	}
 
-	return flux.ToChannel(p.rSocket.RequestStream(sent), ctx)
+	return p.rSocket.RequestStream(sent).DoOnNext(pinPayload).ToChan(ctx, 1)
 }
 
 // NewClientConn creates new client
@@ -145,7 +156,5 @@ func (p *ClientConn) InvokeChannel(
 
 	influx := flux.CreateFromChannel(inchan, inerr)
 
-	outflux := p.rSocket.RequestChannel(influx)
-
-	return flux.ToChannel(outflux, ctx)
+	return p.rSocket.RequestChannel(influx).DoOnNext(pinPayload).ToChan(ctx, 1)
 }

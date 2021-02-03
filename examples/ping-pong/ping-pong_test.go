@@ -3,17 +3,24 @@ package ping_pong_test
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/rsocket/rsocket-go"
+	"github.com/rsocket/rsocket-go/core/transport"
 	"github.com/rsocket/rsocket-go/payload"
 	rrpc "github.com/rsocket/rsocket-rpc-go"
 	ping_pong "github.com/rsocket/rsocket-rpc-go/examples/ping-pong"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"log"
-	"strings"
-	"testing"
-	"time"
 )
+
+type TransportBundle struct {
+	S transport.ServerTransporter
+	C transport.ClientTransporter
+}
 
 func TestAllInOne(t *testing.T) {
 	defer func() {
@@ -22,9 +29,15 @@ func TestAllInOne(t *testing.T) {
 		fmt.Println(i)
 	}()
 
-	m := map[string]string{
-		"tcp": "tcp://127.0.0.1:7878",
-		//"websocket": "ws://127.0.0.1:7878",
+	m := map[string]TransportBundle{
+		"tcp": {
+			S: rsocket.TCPServer().SetHostAndPort("127.0.0.1", 7878).Build(),
+			C: rsocket.TCPClient().SetHostAndPort("127.0.0.1", 7878).Build(),
+		},
+		"websocket": {
+			S: rsocket.WebsocketServer().SetAddr("127.0.0.1:7878").Build(),
+			C: rsocket.WebsocketClient().SetURL("ws://127.0.0.1:7878").Build(),
+		},
 	}
 	for k, v := range m {
 		t.Run(k, func(t *testing.T) {
@@ -71,7 +84,7 @@ func (p *PingPongTestServer) LotsOfPongs(ctx context.Context, in *ping_pong.Ping
 	return pongs, nil
 }
 
-func doTest(addr string, t *testing.T) {
+func doTest(bundle TransportBundle, t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func(ctx context.Context) {
@@ -81,10 +94,10 @@ func doTest(addr string, t *testing.T) {
 		err := rsocket.
 			Receive().
 			Acceptor(
-				func(setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) rsocket.RSocket {
-					return pingPongServer
+				func(ctx context.Context, setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) (rsocket.RSocket, error) {
+					return pingPongServer, nil
 				}).
-			Transport(addr).Serve(ctx)
+			Transport(bundle.S).Serve(ctx)
 		if err != nil {
 			panic(err)
 		}
@@ -93,7 +106,7 @@ func doTest(addr string, t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	rSocket, err := rsocket.Connect().
-		Transport(addr).
+		Transport(bundle.C).
 		Start(ctx)
 	require.NoError(t, err, "cannot create client")
 
